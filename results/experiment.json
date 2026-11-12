@@ -1,0 +1,23 @@
+{
+  "train_start": "2024-10-07",
+  "train_end": "2025-06-30",
+  "test_start": "2025-07-01",
+  "test_end": "2025-12-31",
+  "selected_threshold": 0.03,
+  "ewma_lambda": 0.94,
+  "warmup_returns": 60,
+  "holding_sessions": 5,
+  "rate": 0.065,
+  "option_cost_fraction": 0.002,
+  "futures_cost_notional_fraction": 0.0001,
+  "fixed_reporting_capital": 100000,
+  "paired_trade_mean_difference": 2.193329466788176,
+  "paired_trade_bootstrap_95": [
+    -10.42035724306993,
+    11.640954889341629
+  ],
+  "bootstrap_caveat": "IID trade bootstrap is descriptive; serial dependence can invalidate nominal coverage.",
+  "execution": "Prior-close signal and delta, next-session opening-price execution",
+  "sizing": "One signed straddle unit with fractional futures; no exchange lot or margin enforcement",
+  "scope": "Core replication plus historical adaptation. No GARCH, Heston or exact statutory cost schedule."
+}

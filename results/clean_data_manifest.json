@@ -1,0 +1,27 @@
+[
+  {
+    "file": "data/clean/atm_panel.csv",
+    "bytes": 48355,
+    "sha256": "4c9bc0bc0ed0a862e7bf90d470b6a7d25bcd32a4518300cce1f2d263596bce82"
+  },
+  {
+    "file": "data/clean/nifty_daily.csv",
+    "bytes": 7218,
+    "sha256": "01ba64e6be2dbd6ad6ffff9300a6c6b4cb576fd93113bd29472998662307168b"
+  },
+  {
+    "file": "data/clean/nifty_futures.csv",
+    "bytes": 70407,
+    "sha256": "c75f92b3f1b0738601a5530209ce74d3c6d842488c96c4450841ab7e722a5c42"
+  },
+  {
+    "file": "data/clean/nifty_options_chain.csv.gz",
+    "bytes": 5851765,
+    "sha256": "561a3117affbe9dd6c7208aa5cf4331d65ffe1e5132a7650dafe01eb8afaf5d3"
+  },
+  {
+    "file": "data/clean/signal.csv",
+    "bytes": 60003,
+    "sha256": "0d37782c38969917a2b15625acc73061bedb45fbbf162955480672b480f7c9ca"
+  }
+]

@@ -1,0 +1,39 @@
+{
+  "first_date": "2024-07-08",
+  "last_date": "2025-12-31",
+  "sessions": 370,
+  "option_rows": 222520,
+  "futures_rows": 1110,
+  "iv_valid_fraction": 0.8690994067948948,
+  "atm_sessions": 370,
+  "unavailable_weekdays": [
+    "2024-07-17",
+    "2024-08-15",
+    "2024-10-02",
+    "2024-11-15",
+    "2024-11-20",
+    "2024-12-25",
+    "2025-02-26",
+    "2025-03-14",
+    "2025-03-31",
+    "2025-04-10",
+    "2025-04-14",
+    "2025-04-18",
+    "2025-05-01",
+    "2025-08-15",
+    "2025-08-27",
+    "2025-10-02",
+    "2025-10-22",
+    "2025-11-05",
+    "2025-12-25"
+  ],
+  "rate_assumption": 0.065,
+  "spot_source": "NSE UDiFF UndrlygPric median per day",
+  "monthly_selection": "Exact expiry match with NIFTY index futures",
+  "notes": "Unavailable weekdays are not automatically classified as holidays. IV validity across all strikes includes deep ITM/OTM illiquid contracts.",
+  "verified_closed_weekdays": 19,
+  "unresolved_dates": [],
+  "special_sessions": [
+    "2025-02-01"
+  ]
+}

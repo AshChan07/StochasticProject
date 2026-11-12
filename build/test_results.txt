@@ -1,0 +1,19 @@
+test_cost_sensitivity (test_project.HistoricalTests.test_cost_sensitivity) ... ok
+test_dates_and_coverage (test_project.HistoricalTests.test_dates_and_coverage) ... ok
+test_future_signals_do_not_change_past (test_project.HistoricalTests.test_future_signals_do_not_change_past) ... ok
+test_identical_entries_and_reconciliation (test_project.HistoricalTests.test_identical_entries_and_reconciliation) ... ok
+test_previous_close_drives_entry (test_project.HistoricalTests.test_previous_close_drives_entry) ... ok
+test_bs_reference (test_project.PricingTests.test_bs_reference) ... ok
+test_expiry (test_project.PricingTests.test_expiry) ... ok
+test_futures_delta (test_project.PricingTests.test_futures_delta) ... ok
+test_invalid_price_not_forced (test_project.PricingTests.test_invalid_price_not_forced) ... ok
+test_iv_round_trip (test_project.PricingTests.test_iv_round_trip) ... ok
+test_put_call_parity (test_project.PricingTests.test_put_call_parity) ... ok
+test_cash_and_futures (test_project.SimulationTests.test_cash_and_futures) ... ok
+test_equal_vol_fair_price (test_project.SimulationTests.test_equal_vol_fair_price) ... ok
+test_replication_and_convergence (test_project.SimulationTests.test_replication_and_convergence) ... ok
+
+----------------------------------------------------------------------
+Ran 14 tests in 0.824s
+
+OK

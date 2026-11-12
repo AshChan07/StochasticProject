@@ -1,0 +1,384 @@
+"""Historical straddle experiment. Prior-close signals/deltas execute at next open.
+One signed straddle unit, fractional futures, no overlapping positions.
+Costs are illustrative all-in proxies, NOT an exact historical statutory schedule.
+"""
+
+import json
+import numpy as np, pandas as pd
+import matplotlib
+
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+from .pricing import black
+
+
+class Market:
+    def __init__(self, root):
+        clean = root / "data/clean"
+        o = pd.read_csv(
+            clean / "nifty_options_chain.csv.gz", parse_dates=["date", "expiry"]
+        )
+        f = pd.read_csv(clean / "nifty_futures.csv", parse_dates=["date", "expiry"])
+        self.options = o.set_index(
+            ["date", "expiry", "strike", "opt_type"]
+        ).sort_index()
+        self.futures = f.set_index(["date", "expiry"]).sort_index()
+        spot = (
+            pd.read_csv(clean / "nifty_daily.csv", parse_dates=["date"])
+            .set_index("date")
+            .sort_index()
+        )
+        returns = np.log(spot.close).diff()
+        self.spot = spot
+        # Initial 60 returns only, then a one-step EWMA update including today's close.
+        v = np.full(len(spot), np.nan)
+        ret = returns.to_numpy()
+        if len(v) > 60:
+            v[60] = np.mean(ret[1:61] ** 2)
+            for j in range(61, len(v)):
+                v[j] = 0.94 * v[j - 1] + 0.06 * ret[j] ** 2
+        self.forecast = pd.Series(np.sqrt(v * 252), index=spot.index)
+        panel = pd.read_csv(
+            clean / "atm_panel.csv", parse_dates=["date", "expiry"]
+        ).set_index("date")
+        panel["forecast_vol"] = self.forecast
+        panel["signal"] = panel.forecast_vol - panel.implied_vol
+        panel.to_csv(clean / "signal.csv")
+        self.panel = panel
+        future = sum(returns.shift(-j) ** 2 for j in range(1, 6)) / 5 * 252
+        evals = pd.DataFrame(
+            {"forecast_vol": self.forecast, "future_realized_vol_5d": np.sqrt(future)}
+        )
+        evals["target_end"] = pd.Series(spot.index, index=spot.index).shift(-5)
+        evals["sample"] = np.where(evals.index > "2025-06-30", "test", "train")
+        evals.loc[
+            (evals.index <= "2025-06-30") & (evals.target_end > "2025-06-30"),
+            "future_realized_vol_5d",
+        ] = np.nan
+        evals.to_csv(root / "results/forecast_evaluation.csv")
+        metrics = []
+        for period, g in evals.dropna().groupby("sample"):
+            fv = g.forecast_vol**2
+            rv = g.future_realized_vol_5d**2
+            metrics.append(
+                dict(
+                    sample=period,
+                    n=len(g),
+                    rmse_vol=float(
+                        np.sqrt(
+                            ((g.forecast_vol - g.future_realized_vol_5d) ** 2).mean()
+                        )
+                    ),
+                    qlike=float((rv / fv - np.log(rv / fv) - 1).mean()),
+                )
+            )
+        pd.DataFrame(metrics).to_csv(root / "results/forecast_metrics.csv", index=False)
+
+    def quote(self, day, expiry, strike):
+        c = self.options.loc[(day, expiry, strike, "CE")]
+        p = self.options.loc[(day, expiry, strike, "PE")]
+        f = self.futures.loc[(day, expiry)]
+        return c, p, f
+
+
+def ledger_increment(cash, hedge, Fprev, Fnew, days, r):
+    interest = cash * np.expm1(r * days / 365)
+    futures = hedge * (Fnew - Fprev)
+    return cash + interest + futures, interest, futures
+
+
+def run(
+    m,
+    start,
+    end,
+    threshold=0.02,
+    rule="implied",
+    cost_mult=1.0,
+    rebalance=1,
+    r=0.065,
+    holding=5,
+    capital=100000.0,
+):
+    dates = m.spot.loc[start:end].index
+    all_dates = m.spot.index
+    daily = []
+    trades = []
+    events = []
+    pos = None
+    count = 0
+    for i, day in enumerate(dates):
+        prev = all_dates[all_dates.get_loc(day) - 1]
+        option_pnl = hedge_pnl = finance = cost = turnover = 0.0
+        trade_id = 0
+        if pos is not None:
+            c, p, f = m.quote(day, pos["expiry"], pos["strike"])
+            if min(c.open, p.open, f.open) <= 0:
+                raise ValueError(
+                    f"Missing executable held-position opening quote {day}"
+                )
+            mark = c.open + p.open
+            before = pos["cash"] + pos["q"] * pos["mark"]
+            pos["cash"], finance, hedge_pnl = ledger_increment(
+                pos["cash"], pos["h"], pos["F"], f.open, (day - pos["last"]).days, r
+            )
+            option_pnl = pos["q"] * (mark - pos["mark"])
+            trade_id = pos["id"]
+            exit_now = (
+                (i - pos["entry_i"] >= holding)
+                or ((pos["expiry"] - day).days <= 7)
+                or i == len(dates) - 1
+            )
+            if exit_now:
+                cost = cost_mult * (
+                    0.002 * abs(pos["q"]) * mark + 0.0001 * abs(pos["h"]) * f.open
+                )
+                turnover = abs(pos["h"]) * f.open
+                pos["cash"] += pos["q"] * mark - cost
+                pnl = pos["cash"]
+                trades.append(
+                    dict(
+                        trade_id=trade_id,
+                        entry_date=pos["entry_date"],
+                        exit_date=day,
+                        expiry=pos["expiry"],
+                        strike=pos["strike"],
+                        direction=pos["q"],
+                        entry_signal=pos["signal"],
+                        pnl=pnl,
+                        holding_sessions=i - pos["entry_i"],
+                    )
+                )
+                daily_pnl = pos["cash"] - before
+                pos = None
+            else:
+                newh = pos["h"]
+                if (i - pos["entry_i"]) % rebalance == 0:
+                    pc, pp, pf = m.quote(prev, pos["expiry"], pos["strike"])
+                    vols = (
+                        [pc.iv, pp.iv]
+                        if rule == "implied"
+                        else [m.forecast.loc[prev]] * 2
+                    )
+                    if np.all(np.isfinite(vols)):
+                        tau = (pos["expiry"] - prev).days / 365
+                        newh = -pos["q"] * (
+                            float(black(pf.close, pos["strike"], tau, r, vols[0])[1])
+                            + float(
+                                black(pf.close, pos["strike"], tau, r, vols[1], True)[1]
+                            )
+                        )
+                    else:
+                        events.append(
+                            dict(date=day, event="hedge_carried_invalid_prior_iv")
+                        )
+                turnover = abs(newh - pos["h"]) * f.open
+                cost = cost_mult * 0.0001 * turnover
+                pos["cash"] -= cost
+                pos.update(h=newh, F=f.open, mark=mark, last=day)
+                daily_pnl = pos["cash"] + pos["q"] * mark - before
+        else:
+            daily_pnl = 0.0
+            if i + holding < len(dates) and prev in m.panel.index:
+                sig = m.panel.loc[prev]
+                if np.isfinite(sig.signal) and abs(sig.signal) > threshold:
+                    try:
+                        c, p, f = m.quote(day, sig.expiry, sig.strike)
+                    except KeyError:
+                        events.append(
+                            dict(date=day, event="entry_cancelled_missing_contract")
+                        )
+                        c = None
+                    if (
+                        c is not None
+                        and min(c.open, p.open, f.open) > 0
+                        and (sig.expiry - day).days > 7
+                    ):
+                        q = 1 if sig.signal > 0 else -1
+                        tau = (sig.expiry - prev).days / 365
+                        vols = (
+                            [sig.iv_call, sig.iv_put]
+                            if rule == "implied"
+                            else [sig.forecast_vol] * 2
+                        )
+                        h = -q * (
+                            float(black(sig.forward, sig.strike, tau, r, vols[0])[1])
+                            + float(
+                                black(sig.forward, sig.strike, tau, r, vols[1], True)[1]
+                            )
+                        )
+                        mark = c.open + p.open
+                        turnover = abs(h) * f.open
+                        cost = cost_mult * (0.002 * mark + 0.0001 * turnover)
+                        count += 1
+                        pos = dict(
+                            id=count,
+                            q=q,
+                            h=h,
+                            expiry=sig.expiry,
+                            strike=sig.strike,
+                            cash=-q * mark - cost,
+                            mark=mark,
+                            F=f.open,
+                            last=day,
+                            entry_i=i,
+                            entry_date=day,
+                            signal=sig.signal,
+                        )
+                        daily_pnl = -cost
+                        trade_id = count
+                    elif c is not None:
+                        events.append(
+                            dict(
+                                date=day,
+                                event="entry_cancelled_unavailable_open_or_expiry",
+                            )
+                        )
+        daily.append(
+            dict(
+                date=day,
+                trade_id=trade_id,
+                option_pnl=option_pnl,
+                futures_pnl=hedge_pnl,
+                financing=finance,
+                cost=cost,
+                net_pnl=daily_pnl,
+                futures_turnover=turnover,
+                position=0 if pos is None else pos["q"],
+            )
+        )
+    d = pd.DataFrame(daily)
+    t = pd.DataFrame(trades)
+    if pos is not None:
+        raise AssertionError("Unclosed position")
+    if not np.allclose(
+        d.net_pnl, d.option_pnl + d.futures_pnl + d.financing - d.cost, atol=1e-7
+    ):
+        raise AssertionError("Ledger does not reconcile")
+    if not np.isclose(d.net_pnl.sum(), 0 if t.empty else t.pnl.sum(), atol=1e-7):
+        raise AssertionError("Trades do not reconcile")
+    d["cumulative_pnl"] = d.net_pnl.cumsum()
+    d["return_on_fixed_capital"] = d.net_pnl / capital
+    curve = np.r_[0, d.cumulative_pnl]
+    dd = curve - np.maximum.accumulate(curve)
+    std = d.net_pnl.std(ddof=1)
+    metric = dict(
+        rule=rule,
+        threshold=threshold,
+        cost_multiplier=cost_mult,
+        rebalance_sessions=rebalance,
+        sessions=len(d),
+        trades=len(t),
+        net_pnl=d.net_pnl.sum(),
+        gross_pnl=d.net_pnl.sum() + d.cost.sum(),
+        cost=d.cost.sum(),
+        max_drawdown_points=-dd.min(),
+        sharpe_excess=np.sqrt(252) * d.net_pnl.mean() / std if std > 0 else np.nan,
+        hit_rate=(t.pnl > 0).mean() if len(t) else np.nan,
+        mean_trade_pnl=t.pnl.mean() if len(t) else np.nan,
+        return_fixed_capital=d.net_pnl.sum() / capital,
+        futures_turnover=d.futures_turnover.sum(),
+        long_trades=int((t.direction == 1).sum()) if len(t) else 0,
+        short_trades=int((t.direction == -1).sum()) if len(t) else 0,
+    )
+    return d, t, metric, pd.DataFrame(events)
+
+
+def experiment(root):
+    m = Market(root)
+    out = root / "results"
+    train = []
+    for k in [0.0, 0.01, 0.02, 0.03]:
+        for rule in ["implied", "forecast"]:
+            _, _, metric, _ = run(m, "2024-10-07", "2025-06-30", threshold=k, rule=rule)
+            train.append(metric)
+    tr = pd.DataFrame(train)
+    tr.to_csv(out / "threshold_calibration.csv", index=False)
+    g = tr.groupby("threshold").agg(pnl=("net_pnl", "mean"), trades=("trades", "min"))
+    g = g[g.trades >= 10]
+    k = float(g.pnl.idxmax()) if len(g) else 0.02
+    rows = []
+    curve = {}
+    for rule in ["implied", "forecast"]:
+        d, t, met, e = run(m, "2025-07-01", "2025-12-31", threshold=k, rule=rule)
+        rows.append(met)
+        d.to_csv(out / f"backtest_daily_{rule}.csv", index=False)
+        t.to_csv(out / f"trades_{rule}.csv", index=False)
+        e.to_csv(out / f"events_{rule}.csv", index=False)
+        curve[rule] = d
+    pd.DataFrame(rows).to_csv(out / "test_metrics.csv", index=False)
+    sensitivity = []
+    for cm in [0, 1, 2, 5]:
+        for rule in ["implied", "forecast"]:
+            _, _, met, _ = run(
+                m, "2025-07-01", "2025-12-31", threshold=k, rule=rule, cost_mult=cm
+            )
+            sensitivity.append(met)
+    for freq in [2, 5]:
+        for rule in ["implied", "forecast"]:
+            _, _, met, _ = run(
+                m, "2025-07-01", "2025-12-31", threshold=k, rule=rule, rebalance=freq
+            )
+            sensitivity.append(met)
+    pd.DataFrame(sensitivity).to_csv(out / "sensitivity.csv", index=False)
+    # Threshold alternatives are diagnostics only, never used to reselect after test.
+    checks = []
+    for kk in [0.0, 0.01, 0.02, 0.03]:
+        for rule in ["implied", "forecast"]:
+            _, _, met, _ = run(m, "2025-07-01", "2025-12-31", threshold=kk, rule=rule)
+            checks.append(met)
+    pd.DataFrame(checks).to_csv(out / "test_threshold_sensitivity.csv", index=False)
+    paired = pd.DataFrame(
+        {
+            "implied": pd.read_csv(out / "trades_implied.csv").pnl,
+            "forecast": pd.read_csv(out / "trades_forecast.csv").pnl,
+        }
+    )
+    diff = (paired.forecast - paired.implied).to_numpy()
+    rng = np.random.default_rng(244)
+    boot = (
+        rng.choice(diff, (5000, len(diff)), replace=True).mean(axis=1)
+        if len(diff)
+        else np.array([np.nan])
+    )
+    config = dict(
+        train_start="2024-10-07",
+        train_end="2025-06-30",
+        test_start="2025-07-01",
+        test_end="2025-12-31",
+        selected_threshold=k,
+        ewma_lambda=0.94,
+        warmup_returns=60,
+        holding_sessions=5,
+        rate=0.065,
+        option_cost_fraction=0.002,
+        futures_cost_notional_fraction=0.0001,
+        fixed_reporting_capital=100000,
+        paired_trade_mean_difference=float(diff.mean()),
+        paired_trade_bootstrap_95=list(np.quantile(boot, [0.025, 0.975])),
+        bootstrap_caveat="IID trade bootstrap is descriptive; serial dependence can invalidate nominal coverage.",
+        execution="Prior-close signal and delta, next-session opening-price execution",
+        sizing="One signed straddle unit with fractional futures; no exchange lot or margin enforcement",
+        scope="Core replication plus historical adaptation. No GARCH, Heston or exact statutory cost schedule.",
+    )
+    (out / "experiment.json").write_text(json.dumps(config, indent=2))
+    fig, ax = plt.subplots(figsize=(8, 3.4))
+    for rule, color in [("implied", "#137c83"), ("forecast", "#e39332")]:
+        d = curve[rule]
+        ax.plot(d.date, d.cumulative_pnl, label=rule + " vol delta", color=color)
+    ax.axhline(0, color="#667", lw=0.6)
+    ax.set(ylabel="Cumulative net P&L (index points)", xlabel="Test period, 2025")
+    ax.legend()
+    fig.tight_layout()
+    fig.savefig(out / "figures/historical_pnl.png", dpi=190)
+    plt.close(fig)
+    fig, ax = plt.subplots(figsize=(8, 3.3))
+    p = m.panel.dropna()
+    ax.plot(p.index, p.implied_vol * 100, label="ATM implied", color="#137c83", lw=1)
+    ax.plot(p.index, p.forecast_vol * 100, label="EWMA forecast", color="#e39332", lw=1)
+    ax.axvline(pd.Timestamp("2025-07-01"), ls="--", color="#667")
+    ax.set(ylabel="Annualized volatility (%)")
+    ax.legend()
+    fig.tight_layout()
+    fig.savefig(out / "figures/volatility.png", dpi=190)
+    plt.close(fig)
+    return config

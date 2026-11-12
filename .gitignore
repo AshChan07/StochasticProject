@@ -1,0 +1,19 @@
+__pycache__/
+.venv/
+.DS_Store
+data/raw/
+build/node_modules/
+build/matplotlib/
+build/slides/
+build/*.png
+build/candidate*
+
+# Generated document previews, temporary workbooks and local dependencies
+.chart-data-*/
+build/*
+!build/README.md
+!build/build_report.py
+!build/build_slides.mjs
+!build/slide_data.json
+!build/audit_calendar.py
+!build/test_results.txt
