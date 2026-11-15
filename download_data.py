@@ -6,6 +6,15 @@ import argparse, subprocess, zipfile, hashlib, csv, datetime
 
 ROOT = Path(__file__).resolve().parent
 
+HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+        "(KHTML, like Gecko) Chrome/124.0 Safari/537.36"
+    ),
+    "Accept": "*/*",
+    "Referer": "https://www.nseindia.com/",
+}
+
 
 def fetch(day):
     name = f"BhavCopy_NSE_FO_0_0_0_{day:%Y%m%d}_F_0000.csv.zip"
@@ -13,31 +22,62 @@ def fetch(day):
     dest = ROOT / "data/raw" / name
     if not (dest.exists() and zipfile.is_zipfile(dest)):
         tmp = dest.with_suffix(".part")
-        p = subprocess.run(
-            [
-                "curl",
-                "--http1.1",
-                "-L",
-                "-sS",
-                "--max-time",
-                "25",
-                "--retry",
-                "1",
-                "-A",
-                "Mozilla/5.0",
-                "-o",
-                str(tmp),
-                "-w",
-                "%{http_code}",
-                url,
-            ],
-            capture_output=True,
-            text=True,
-        )
-        if p.returncode or p.stdout != "200" or not zipfile.is_zipfile(tmp):
-            tmp.unlink(missing_ok=True)
-            return [str(day), url, "unavailable_" + p.stdout, "", p.stderr[:120]]
-        tmp.replace(dest)
+        downloaded = False
+        status_code = ""
+        err_msg = ""
+        try:
+            import requests
+
+            r = requests.get(url, headers=HEADERS, timeout=30)
+            status_code = str(r.status_code)
+            if r.status_code == 200 and r.content[:2] == b"PK":
+                tmp.write_bytes(r.content)
+                if zipfile.is_zipfile(tmp):
+                    tmp.replace(dest)
+                    downloaded = True
+                else:
+                    tmp.unlink(missing_ok=True)
+            else:
+                err_msg = f"HTTP {status_code}"
+        except Exception as exc:
+            err_msg = str(exc)[:120]
+
+        if not downloaded and not dest.exists():
+            # Fallback to curl if requests failed or was blocked
+            p = subprocess.run(
+                [
+                    "curl",
+                    "--http1.1",
+                    "-L",
+                    "-sS",
+                    "--max-time",
+                    "25",
+                    "--retry",
+                    "1",
+                    "-A",
+                    HEADERS["User-Agent"],
+                    "-e",
+                    HEADERS["Referer"],
+                    "-o",
+                    str(tmp),
+                    "-w",
+                    "%{http_code}",
+                    url,
+                ],
+                capture_output=True,
+                text=True,
+            )
+            status_code = p.stdout.strip()
+            if p.returncode == 0 and status_code == "200" and zipfile.is_zipfile(tmp):
+                tmp.replace(dest)
+                downloaded = True
+            else:
+                tmp.unlink(missing_ok=True)
+                err_msg = err_msg or p.stderr[:120]
+
+        if not dest.exists():
+            return [str(day), url, "unavailable_" + str(status_code), "", err_msg]
+
     return [
         str(day),
         url,
@@ -70,7 +110,7 @@ if __name__ == "__main__":
             rows.append(row)
             if i % 25 == 0:
                 print(i + 1, "/", len(days), row[0], row[2], flush=True)
-    with (ROOT / "data/download_manifest.csv").open("w") as f:
+    with (ROOT / "data/download_manifest.csv").open("w", newline="", encoding="utf-8") as f:
         w = csv.writer(f)
         w.writerow(["date", "source_url", "status", "sha256", "error"])
         w.writerows(rows)

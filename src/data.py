@@ -29,7 +29,10 @@ def build(root, r=0.065):
         audit.append(dict(date=d.date.iloc[0], rows=len(d)))
         parts.append(d)
     if not parts:
-        raise RuntimeError("No NSE ZIPs. Run download_data.py first.")
+        raise RuntimeError(
+            "No raw NSE ZIPs found in data/raw. Run download_data.py first to fetch archives, "
+            "or omit --rebuild-data to use the included cleaned dataset in data/clean/."
+        )
     d = pd.concat(parts, ignore_index=True).rename(columns={"contracts": "volume"})
     d["FinInstrmTp"] = d.instrument.map({"FUTIDX": "IDF", "OPTIDX": "IDO"})
     f = d[d.FinInstrmTp.eq("IDF")].copy()
