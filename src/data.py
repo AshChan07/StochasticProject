@@ -1,6 +1,6 @@
 """Normalize downloaded NSE UDiFF ZIPs; keep all strikes to track held contracts."""
 
-import zipfile, json
+import hashlib, zipfile, json
 from pathlib import Path
 import pandas as pd, numpy as np
 from .pricing import iv
@@ -11,9 +11,25 @@ from data_pipeline.forwards import parity_forward
 def build(root, r=0.065):
     out = root / "data/clean"
     out.mkdir(parents=True, exist_ok=True)
+    manifest_path = root / "data/download_manifest.csv"
+    manifest = pd.read_csv(manifest_path) if manifest_path.exists() else None
+    expected_hashes = {}
+    expected_dates = set()
+    if manifest is not None:
+        dl = manifest[manifest.status.eq("downloaded")].copy()
+        expected_dates = set(pd.to_datetime(dl["date"]).dt.normalize())
+        for _, row in dl.iterrows():
+            if pd.notna(row.get("source_url")) and pd.notna(row.get("sha256")):
+                expected_hashes[Path(str(row["source_url"])).name] = str(row["sha256"]).strip().lower()
+
     parts = []
     audit = []
+    found_dates = set()
     for zpath in sorted((root / "data/raw").rglob("*.zip")):
+        if zpath.name in expected_hashes:
+            digest = hashlib.sha256(zpath.read_bytes()).hexdigest().lower()
+            if digest != expected_hashes[zpath.name]:
+                raise ValueError(f"SHA-256 mismatch for {zpath}: expected {expected_hashes[zpath.name]}, got {digest}")
         d = normalise(zpath)
         if d.date.nunique() != 1:
             raise ValueError("Archive must contain one session: " + str(zpath))
@@ -26,12 +42,19 @@ def build(root, r=0.065):
             expected = pd.to_datetime(date_str, format="%Y%m%d")
             if not d.date.eq(expected).all():
                 raise ValueError("Date mismatch " + str(zpath))
+        session_date = pd.Timestamp(d.date.iloc[0]).normalize()
+        found_dates.add(session_date)
         audit.append(dict(date=d.date.iloc[0], rows=len(d)))
         parts.append(d)
     if not parts:
         raise RuntimeError(
             "No raw NSE ZIPs found in data/raw. Run download_data.py first to fetch archives, "
             "or omit --rebuild-data to use the included cleaned dataset in data/clean/."
+        )
+    if expected_dates and not expected_dates.issubset(found_dates):
+        missing_dates = sorted(str(dt.date()) for dt in (expected_dates - found_dates))
+        raise ValueError(
+            f"Missing {len(missing_dates)} expected archive(s) from download_manifest.csv: {missing_dates[:5]}"
         )
     d = pd.concat(parts, ignore_index=True).rename(columns={"contracts": "volume"})
     d["FinInstrmTp"] = d.instrument.map({"FUTIDX": "IDF", "OPTIDX": "IDO"})

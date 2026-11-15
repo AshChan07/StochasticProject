@@ -5,6 +5,7 @@ import csv, json, re
 from reportlab.platypus import (
     SimpleDocTemplate,
     Paragraph,
+    Preformatted,
     Spacer,
     Image,
     Table,
@@ -104,6 +105,19 @@ styles.add(
         leftIndent=8,
     )
 )
+styles.add(
+    ParagraphStyle(
+        name="CodeA",
+        fontName="Courier",
+        fontSize=8,
+        leading=10.5,
+        backColor=colors.HexColor("#f3f6f8"),
+        leftIndent=6,
+        rightIndent=6,
+        spaceBefore=3,
+        spaceAfter=4,
+    )
+)
 story = []
 source = []
 
@@ -112,6 +126,11 @@ def para(s, sty="BodyA"):
     s = re.sub(r"&(?!amp;|lt;|gt;|quot;|#)", "&amp;", s)
     story.append(Paragraph(s, styles[sty]))
     source.append(s)
+
+
+def codeblock(s):
+    story.append(Preformatted(s, styles["CodeA"]))
+    source.append(f"```bash\n{s}\n```")
 
 
 def head(s):
@@ -238,19 +257,19 @@ para(
 page()
 head("4. Historical experiment")
 para(
-    f'NSE UDiFF bhavcopies [3] supply {dq["sessions"]} sessions from 8 July 2024 to 31 December 2025, including the special 1 February 2025 budget session. The clean panel contains {dq["option_rows"]:,} monthly-option records and {dq["futures_rows"]:,} futures records. The index close comes from the archive’s underlying-price field. Contract keys and file dates are validated; unavailable dates are audited separately.'
+    f'NSE UDiFF bhavcopies [3] supply {dq["sessions"]} sessions from 8 July 2024 to 31 December 2025 (389 manifest requests: 370 downloads with SHA-256 hashes and 19 HTTP 404 weekdays), including the special 1 February 2025 budget session. The cleaned options chain contains {dq["option_rows"]:,} monthly-option records ({int(round(dq["option_rows"] * dq["iv_valid_fraction"])):,} with valid IVs), alongside {dq["futures_rows"]:,} futures records and a separate {dq["atm_sessions"]}-row ATM panel. The index close comes from the archive’s underlying-price field.'
 )
 para(
     "Monthly options must match an observed futures expiry. Black-76 [4] on the matched futures close yields each leg’s implied volatility and futures delta. All strikes remain available for tracking held contracts. Invalid IV observations are excluded from entry selection; no artificial volatility fills are used. The flat 6.5% rate is an assumption, not a downloaded RBI yield."
 )
 para(
-    "EWMA variance uses 60 initial returns and λ = 0.94 [5], then updates using only available closes. Volatility is annualized with 252 sessions. At a decision close, choose the first monthly expiry 14–65 days away and the nearest strike with both legs traded and valid IV. Signal = forecast minus mean call/put IV."
+    "EWMA variance uses 60 initial returns and λ = 0.94 [5], then updates using only available closes. Volatility is annualized with 252 sessions and evaluated against 5-session realized volatility in diagnostics. At a decision close, choose the first monthly expiry 14–65 calendar days away and the nearest strike with both legs traded and valid IV. The trading signal (forecast minus mean call/put IV) has a horizon mismatch between daily EWMA and 14–65 day IV."
 )
 para(
-    "Buy above +k, sell below −k. Execute at the next session’s recorded opens. Hold one straddle unit for five sessions, with earlier exit at seven calendar days to expiry. No overlapping positions or new entry on an exit day. Keep strike and expiry fixed. Futures quantities, including rebalances, use the preceding close and may be fractional. Opening quotes can be asynchronous, so execution is approximate."
+    "Buy above +k, sell below −k. Execute at the next session’s recorded opens. Hold one straddle unit for five sessions, exiting at the first available session with seven or fewer calendar days to expiry or at sample end; entries are blocked when fewer than five sessions remain in the sample. No overlapping positions or new entry on an exit day. Keep strike and expiry fixed. Futures quantities, including rebalances, use the preceding close and may be fractional."
 )
 para(
-    "Calibration runs 7 October 2024–30 June 2025. Among k = 0, 1, 2, 3 volatility points with at least ten training trades, the largest average net P&amp;L across both hedge rules selects <b>k = 3 points</b>. The untouched test period is July–December 2025. Selection is on training P&amp;L rather than test performance."
+    "Calibration runs 7 October 2024–30 June 2025. Among k = 0, 1, 2, 3 volatility percentage points (0.00–0.03) with at least ten training trades under each rule, maximizing the average of total calibration-period net P&amp;L across the two hedge rules selects <b>k = 0.03 (3 volatility percentage points)</b>, where both rules execute 10 trades and average 230.25 points. The untouched test period is July–December 2025."
 )
 para(
     "Base costs are illustrative all-in proxies: 0.20% of option premium each way and 1 bp of traded futures notional. Cash financing and daily futures gains are explicit. These proxies do not reconstruct historical taxes, brokerage or margin. P&amp;L is per index unit; exchange lot and collateral constraints are not enforced."
@@ -324,8 +343,11 @@ para(
     "SmallA",
 )
 para(
-    "Run: python run_project.py to regenerate all numerical CSVs, trade logs, figures and sensitivity tables. Tests: python -m unittest discover -s tests -v. Thirty-three tests cover pricing, IV inversion, causality, convergence, Black-76 PDE residuals, schema validation, and ledger identities. Cleaned options data, downloader, and full experimental parameters are included.",
+    "Thirty-five unit and audit tests cover pricing, IV inversion, causality, convergence, Black-76 PDE residuals, schema/hash validation, multi-position controls, and ledger identities. Cleaned options data, downloader, and full experimental parameters are included:",
     "SmallA",
+)
+codeblock(
+    "python run_project.py\npython -m unittest discover -s tests -v"
 )
 
 

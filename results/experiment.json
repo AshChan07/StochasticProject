@@ -11,10 +11,10 @@
   "option_cost_fraction": 0.002,
   "futures_cost_notional_fraction": 0.0001,
   "fixed_reporting_capital": 100000,
-  "paired_trade_mean_difference": 2.193329466788178,
+  "paired_trade_mean_difference": 2.193329466788176,
   "paired_trade_bootstrap_95": null,
   "bootstrap_caveat": "Suppressed below 20 trades; above that, IID bootstrap remains descriptive and ignores serial dependence.",
   "execution": "Prior-close signal and delta, next-session opening-price execution",
   "sizing": "One signed straddle unit with fractional futures; no exchange lot or margin enforcement",
-  "scope": "Core replication plus historical adaptation. No GARCH, Heston or exact statutory cost schedule."
+  "scope": "Core replication plus historical adaptation. Primary signal and hedging use EWMA only; GARCH(1,1) is fitted on training returns as an exploratory diagnostic in data/clean/signal.csv. No Heston or exact statutory cost schedule."
 }

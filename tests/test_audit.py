@@ -120,6 +120,41 @@ class HistoricalAuditTests(unittest.TestCase):
                 c,p,f=self.m.quote(day,row.expiry,row.strike)
                 self.assertTrue(positive_quotes(c.open,p.open,f.open))
 
+    def test_multi_position_respects_controls(self):
+        d_open,_,_,_=run(self.m,'2025-07-01','2025-12-31',threshold=0.0,execution='open',max_positions=2)
+        d_close,_,_,_=run(self.m,'2025-07-01','2025-12-31',threshold=0.0,execution='close',max_positions=2)
+        self.assertFalse(np.allclose(d_open.net_pnl,d_close.net_pnl))
+        flat_sched=pd.Series(10.0,index=self.m.spot.loc['2025-07-01':'2025-12-31'].index)
+        _,t_flat,_,_=run(self.m,'2025-07-01','2025-12-31',threshold=0.0,threshold_schedule=flat_sched,max_positions=2)
+        self.assertTrue(t_flat.empty)
+        d_unhedged,_,_,_=run(self.m,'2025-07-01','2025-12-31',threshold=0.0,rule='unhedged',max_positions=2)
+        self.assertEqual(d_unhedged.futures_turnover.sum(),0)
+        self.assertEqual(d_unhedged.futures_pnl.sum(),0)
+
+    def test_data_build_verifies_hash_and_completeness(self):
+        import tempfile, hashlib
+        from src import data as data_mod
+        d=date(2024,7,8)
+        zbytes=fx.udiff_zip(d)
+        with tempfile.TemporaryDirectory() as tmp:
+            troot=Path(tmp)
+            (troot/'data/raw').mkdir(parents=True)
+            (troot/'results').mkdir(parents=True)
+            zname=f'BhavCopy_NSE_FO_0_0_0_{d.strftime("%Y%m%d")}_F_0000.csv.zip'
+            (troot/'data/raw'/zname).write_bytes(zbytes)
+            # Mismatched hash must raise ValueError
+            pd.DataFrame([dict(date='2024-07-08',source_url=f'https://example.com/{zname}',status='downloaded',sha256='0'*64,error='')]).to_csv(troot/'data/download_manifest.csv',index=False)
+            with self.assertRaises(ValueError):
+                data_mod.build(troot)
+            # Missing expected archive must raise ValueError
+            good_hash=hashlib.sha256(zbytes).hexdigest()
+            pd.DataFrame([
+                dict(date='2024-07-08',source_url=f'https://example.com/{zname}',status='downloaded',sha256=good_hash,error=''),
+                dict(date='2024-07-09',source_url='https://example.com/missing.zip',status='downloaded',sha256='1'*64,error=''),
+            ]).to_csv(troot/'data/download_manifest.csv',index=False)
+            with self.assertRaises(ValueError):
+                data_mod.build(troot)
+
 
 if __name__ == '__main__':
     unittest.main(verbosity=2)
