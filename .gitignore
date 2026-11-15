@@ -17,3 +17,5 @@ build/*
 !build/slide_data.json
 !build/audit_calendar.py
 !build/test_results.txt
+
+*.zip
