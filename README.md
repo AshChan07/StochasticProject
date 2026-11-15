@@ -5,7 +5,7 @@ A stochastic-calculus project implementing the central hedging comparison in **A
 **Course:** MAC F244 — Stochastic Calculus and Application to Finance  
 **Institution:** BITS Pilani, K K Birla Goa Campus  
 **Instructor:** Mayank Goel  
-**Team:** Arnav, Rohan, Joel, Ashwath and Advay  
+**Team:** Arnav Kulshreshtha (2024ADPS0821G), Rohan Agrawal (2024ADPS0004G), Ashwath Chandramouli (2024ADPS0853G), Joel Thomas Thomas (2024ADPS0848G), and Advay Satish (2024ADPS0826G)  
 **GitHub Repository:** [https://github.com/AshChan07/StochasticProject](https://github.com/AshChan07/StochasticProject)
 
 ---

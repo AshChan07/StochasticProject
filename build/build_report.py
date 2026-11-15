@@ -185,7 +185,7 @@ para(
     "SmallA",
 )
 para(
-    "Arnav, Rohan, Joel, Ashwath and Advay<br/>BITS Pilani, K K Birla Goa Campus · Instructor: Mayank Goel",
+    "Arnav Kulshreshtha (2024ADPS0821G), Rohan Agrawal (2024ADPS0004G), Ashwath Chandramouli (2024ADPS0853G), Joel Thomas Thomas (2024ADPS0848G), and Advay Satish (2024ADPS0826G)<br/>BITS Pilani, K K Birla Goa Campus · Instructor: Mayank Goel",
     "SmallA",
 )
 head("1. Research question and scope")
@@ -369,7 +369,7 @@ doc = SimpleDocTemplate(
     bottomMargin=47,
 )
 doc.title = "Volatility Arbitrage and Delta Hedging on NIFTY Index Options"
-doc.author = "Arnav, Rohan, Joel, Ashwath, Advay"
+doc.author = "Arnav Kulshreshtha, Rohan Agrawal, Ashwath Chandramouli, Joel Thomas Thomas, Advay Satish"
 doc.build(story, onFirstPage=footer, onLaterPages=footer)
 (ROOT / "docs/report_source.md").write_text("\n\n".join(source), encoding="utf-8")
 print(OUT / "project_report.pdf")
