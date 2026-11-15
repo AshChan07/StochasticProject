@@ -24,13 +24,14 @@ OUT.mkdir(exist_ok=True)
 
 
 def rows(name):
-    return list(csv.DictReader((ROOT / "results" / name).open()))
+    with (ROOT / "results" / name).open(encoding="utf-8") as f:
+        return list(csv.DictReader(f))
 
 
 met = rows("test_metrics.csv")
 sim = rows("simulation_summary.csv")
-conf = json.loads((ROOT / "results/experiment.json").read_text())
-dq = json.loads((ROOT / "results/data_quality.json").read_text())
+conf = json.loads((ROOT / "results/experiment.json").read_text(encoding="utf-8"))
+dq = json.loads((ROOT / "results/data_quality.json").read_text(encoding="utf-8"))
 sens = rows("test_threshold_sensitivity.csv")
 costs = rows("sensitivity.csv")
 fm = rows("forecast_metrics.csv")
@@ -191,10 +192,10 @@ para(
     "The rW term distinguishes wealth from an instantaneous excess P&amp;L. Multiplying the right-hand side by e<super>−rt</super> gives discounted wealth changes. Quadratic variation creates the gamma term; residual delta creates the Brownian term."
 )
 para(
-    "<b>Known actual-volatility hedge:</b> with Δ<sub>h</sub> = Δ(σ), continuous replication implies e<super>−rT</super>W<sub>T</sub> = V(S<sub>0</sub>,0;σ) − V(S<sub>0</sub>,0;σ<sub>i</sub>). Terminal profit is fixed, although intermediate market marks vary."
+    "<b>Known actual-volatility hedge:</b> let V<sub>σ</sub>(S,t) be the theoretical Black–Scholes value process under actual volatility σ. Continuous replication with Δ<sub>h</sub> = Δ<sub>σ</sub> reproduces the expiry payoff V<sub>σ</sub>(S<sub>T</sub>,T) = (S<sub>T</sub>−K)<sup>+</sup> = V<sub>i</sub>(S<sub>T</sub>,T) starting from cost V<sub>σ</sub>(S<sub>0</sub>,0). Because the option was bought at market mark V<sub>i</sub>(S<sub>0</sub>,0), terminal discounted wealth satisfies the exact path-independent identity: e<super>−rT</super>W<sub>T</sub> = V<sub>σ</sub>(S<sub>0</sub>,0) − V<sub>i</sub>(S<sub>0</sub>,0). Intermediate market marks fluctuate, but terminal replication profit is fixed."
 )
 para(
-    "<b>Constant implied-volatility hedge:</b> with Δ<sub>h</sub> = Δ<sub>i</sub>, the explicit Brownian term cancels. Discounted terminal P&amp;L equals the integral of ½e<super>−rt</super>(σ<super>2</super>−σ<sub>i</sub><super>2</super>)S<super>2</super>Γ<sub>i</sub> over time. Its sign is fixed for a long vanilla option under the assumptions, but its magnitude depends on the path."
+    "<b>Constant implied-volatility hedge:</b> with Δ<sub>h</sub> = Δ<sub>i</sub>, the residual delta (Δ<sub>i</sub> − Δ<sub>h</sub>) vanishes, eliminating the Brownian term dB. Discounted terminal P&amp;L equals the integral of ½e<super>−rt</super>(σ<super>2</super>−σ<sub>i</sub><super>2</super>)S<super>2</super>Γ<sub>i</sub> over time. Because Γ<sub>i</sub> &gt; 0 for a long vanilla option, its profit sign matches sign(σ<super>2</super>−σ<sub>i</sub><super>2</super>), but its terminal magnitude remains stochastic and path-dependent."
 )
 para(
     "These statements require constant volatility, continuous trading and no costs. Changing implied volatility introduces additional risks. A forecast is not known actual volatility, and a short historical holding period does not inherit the terminal guarantee. Pricing uses Q; simulation and historical P&amp;L are evaluated under P [2]."
@@ -281,7 +282,7 @@ head("5. Results, sensitivity and limitations")
 img(
     "historical_pnl.png",
     495,
-    210,
+    190,
     "Figure 3. Test-period cumulative net P&L at the training-selected threshold. Long flat sections reflect no position, not missing marks.",
 )
 table(
@@ -308,13 +309,13 @@ para(
     "Higher costs reduce both outcomes and reverse the small hedge ranking at 5x costs. As a prespecified threshold diagnostic, k = 0 generates 21 test trades and net P&amp;L of 46.09 (implied) and 103.50 (forecast). We do not replace the selected threshold with a better-looking test alternative. Full threshold and hedge-frequency sensitivities accompany the code."
 )
 para(
-    "The simulation strongly supports the constant-volatility replication identity and the N<super>−1/2</super> error rate. The market comparison is exploratory: few trades, one test period, uncertain forecasts, changing IV, asynchronous opening prints, fractional sizing and omitted margin effects constrain inference. An IID paired-trade bootstrap of the mean hedge difference spans zero and is not reliable formal evidence with three trades."
+    "The simulation strongly supports the constant-volatility replication identity and the N<super>−1/2</super> error rate. The market comparison is exploratory: few trades, one test period, uncertain forecasts, changing IV, asynchronous opening prints, fractional sizing and omitted margin effects constrain inference. The mean paired-trade difference between forecast and implied hedging is 2.19 index points (6.58 points total). An IID paired-trade bootstrap was suppressed by design because the test sample contains only three trades, which cannot establish hedge superiority."
 )
 para(
     "<b>Conclusion.</b> Choosing the hedge volatility changes the risk profile. Known-volatility replication controls terminal risk in the ideal model. Forecast-volatility hedging in this NIFTY sample produces a slightly larger net gain, but the evidence does not support a general superiority or an implementable arbitrage claim. A stronger study requires longer independent samples, synchronized bid/ask quotes and historical contract-level costs."
 )
 para(
-    "<b>Implemented scope.</b> EWMA, real daily NSE data, the two hedge rules and cost/frequency sensitivity are complete. GARCH, VIX benchmarking, Heston calibration, fixed-vega sizing, 2019–2026 coverage and Greek-level attribution remain extensions. Exact accounting attribution separates option, futures, financing and costs.",
+    "<b>Implemented scope.</b> The primary backtest uses an EWMA volatility signal, real daily NSE options/futures data, the two hedge rules, and cost/frequency sensitivity. GARCH(1,1) estimation and Greek attribution are implemented in the codebase as exploratory diagnostics but are excluded from the primary decision signal. India VIX benchmarking, Heston calibration, fixed-vega sizing, and 2019–2026 coverage remain extensions. Exact accounting attribution separates option, futures, financing and costs.",
     "SmallA",
 )
 head("References and reproducibility")
@@ -323,7 +324,7 @@ para(
     "SmallA",
 )
 para(
-    "Run: python run_project.py. Tests: python -m unittest discover -s tests -v. Fourteen tests cover pricing, IV inversion, causality, convergence and ledger identities. Numerical CSVs, individual trades, full assumptions and download instructions are included.",
+    "Run: python run_project.py to regenerate all numerical CSVs, trade logs, figures and sensitivity tables. Tests: python -m unittest discover -s tests -v. Thirty-three tests cover pricing, IV inversion, causality, convergence, Black-76 PDE residuals, schema validation, and ledger identities. Cleaned options data, downloader, and full experimental parameters are included.",
     "SmallA",
 )
 

@@ -115,6 +115,7 @@ class Market:
             (evals.index <= "2025-06-30") & (evals.target_end > "2025-06-30"),
             "future_realized_vol_5d",
         ] = np.nan
+        (root / "results").mkdir(parents=True, exist_ok=True)
         evals.to_csv(root / "results/forecast_evaluation.csv")
         metrics = []
         for period, g in evals.dropna().groupby("sample"):
@@ -541,6 +542,7 @@ def run_benchmark(m, start, end, holding=5, cost_mult=1.0, r=0.065, capital=1000
 def experiment(root):
     m = Market(root)
     out = root / "results"
+    out.mkdir(parents=True, exist_ok=True)
     train = []
     for k in [0.0, 0.01, 0.02, 0.03]:
         for rule in ["implied", "forecast"]:

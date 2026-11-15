@@ -13,12 +13,17 @@ def build(root, r=0.065):
     out.mkdir(parents=True, exist_ok=True)
     parts = []
     audit = []
-    for zpath in sorted((root / "data/raw").glob("*.zip")):
+    for zpath in sorted((root / "data/raw").rglob("*.zip")):
         d = normalise(zpath)
         if d.date.nunique() != 1:
             raise ValueError("Archive must contain one session: " + str(zpath))
         if zpath.name.startswith("BhavCopy_"):
             expected = pd.to_datetime(zpath.name.split("_")[6], format="%Y%m%d")
+            if not d.date.eq(expected).all():
+                raise ValueError("Date mismatch " + str(zpath))
+        elif zpath.stem.startswith("fo_"):
+            date_str = zpath.stem.split("_")[1][:8]
+            expected = pd.to_datetime(date_str, format="%Y%m%d")
             if not d.date.eq(expected).all():
                 raise ValueError("Date mismatch " + str(zpath))
         audit.append(dict(date=d.date.iloc[0], rows=len(d)))
