@@ -13,7 +13,9 @@ from .pricing import black
 
 
 class Market:
-    def __init__(self, root):
+    def __init__(self, root, ewma_lambda=0.94):
+        if not 0 < ewma_lambda < 1:
+            raise ValueError("EWMA lambda must lie in (0,1)")
         clean = root / "data/clean"
         o = pd.read_csv(
             clean / "nifty_options_chain.csv.gz", parse_dates=["date", "expiry"]
@@ -29,6 +31,10 @@ class Market:
             .sort_index()
         )
         returns = np.log(spot.close).diff()
+        if spot.index.duplicated().any() or not np.isfinite(spot.close).all() or (spot.close <= 0).any():
+            raise ValueError("Invalid spot dates or closes")
+        if self.options.index.duplicated().any() or self.futures.index.duplicated().any():
+            raise ValueError("Duplicate contract keys")
         self.spot = spot
         # Initial 60 returns only, then a one-step EWMA update including today's close.
         v = np.full(len(spot), np.nan)
@@ -36,7 +42,7 @@ class Market:
         if len(v) > 60:
             v[60] = np.mean(ret[1:61] ** 2)
             for j in range(61, len(v)):
-                v[j] = 0.94 * v[j - 1] + 0.06 * ret[j] ** 2
+                v[j] = ewma_lambda * v[j - 1] + (1 - ewma_lambda) * ret[j] ** 2
         self.forecast = pd.Series(np.sqrt(v * 252), index=spot.index)
         panel = pd.read_csv(
             clean / "atm_panel.csv", parse_dates=["date", "expiry"]
@@ -81,6 +87,10 @@ class Market:
         return c, p, f
 
 
+def positive_quotes(*values):
+    return bool(np.all(np.isfinite(values)) and np.all(np.asarray(values) > 0))
+
+
 def ledger_increment(cash, hedge, Fprev, Fnew, days, r):
     interest = cash * np.expm1(r * days / 365)
     futures = hedge * (Fnew - Fprev)
@@ -98,8 +108,18 @@ def run(
     r=0.065,
     holding=5,
     capital=100000.0,
+    execution="open",
+    threshold_schedule=None,
 ):
+    if rule not in {"implied", "forecast", "unhedged"}:
+        raise ValueError("Unknown hedge rule")
+    if execution not in {"open", "close"}:
+        raise ValueError("Execution must be open or close")
+    if holding < 1 or rebalance < 1 or threshold < 0 or cost_mult < 0 or capital <= 0:
+        raise ValueError("Invalid experiment parameters")
     dates = m.spot.loc[start:end].index
+    if dates.empty or m.spot.index.get_loc(dates[0]) == 0:
+        raise ValueError("Sample needs observations and a preceding decision session")
     all_dates = m.spot.index
     daily = []
     trades = []
@@ -107,19 +127,22 @@ def run(
     pos = None
     count = 0
     for i, day in enumerate(dates):
+        active_threshold = threshold if threshold_schedule is None else float(threshold_schedule.loc[day])
+        if not np.isfinite(active_threshold) or active_threshold < 0:
+            raise ValueError("Invalid scheduled threshold")
         prev = all_dates[all_dates.get_loc(day) - 1]
         option_pnl = hedge_pnl = finance = cost = turnover = 0.0
         trade_id = 0
         if pos is not None:
             c, p, f = m.quote(day, pos["expiry"], pos["strike"])
-            if min(c.open, p.open, f.open) <= 0:
+            if not positive_quotes(c[execution], p[execution], f[execution]):
                 raise ValueError(
                     f"Missing executable held-position opening quote {day}"
                 )
-            mark = c.open + p.open
+            mark = c[execution] + p[execution]
             before = pos["cash"] + pos["q"] * pos["mark"]
             pos["cash"], finance, hedge_pnl = ledger_increment(
-                pos["cash"], pos["h"], pos["F"], f.open, (day - pos["last"]).days, r
+                pos["cash"], pos["h"], pos["F"], f[execution], (day - pos["last"]).days, r
             )
             option_pnl = pos["q"] * (mark - pos["mark"])
             trade_id = pos["id"]
@@ -130,9 +153,9 @@ def run(
             )
             if exit_now:
                 cost = cost_mult * (
-                    0.002 * abs(pos["q"]) * mark + 0.0001 * abs(pos["h"]) * f.open
+                    0.002 * abs(pos["q"]) * mark + 0.0001 * abs(pos["h"]) * f[execution]
                 )
-                turnover = abs(pos["h"]) * f.open
+                turnover = abs(pos["h"]) * f[execution]
                 pos["cash"] += pos["q"] * mark - cost
                 pnl = pos["cash"]
                 trades.append(
@@ -159,7 +182,9 @@ def run(
                         if rule == "implied"
                         else [m.forecast.loc[prev]] * 2
                     )
-                    if np.all(np.isfinite(vols)):
+                    if rule == "unhedged":
+                        newh = 0.0
+                    elif np.all(np.isfinite(vols)) and min(vols) > 0 and positive_quotes(pf.close):
                         tau = (pos["expiry"] - prev).days / 365
                         newh = -pos["q"] * (
                             float(black(pf.close, pos["strike"], tau, r, vols[0])[1])
@@ -171,16 +196,16 @@ def run(
                         events.append(
                             dict(date=day, event="hedge_carried_invalid_prior_iv")
                         )
-                turnover = abs(newh - pos["h"]) * f.open
+                turnover = abs(newh - pos["h"]) * f[execution]
                 cost = cost_mult * 0.0001 * turnover
                 pos["cash"] -= cost
-                pos.update(h=newh, F=f.open, mark=mark, last=day)
+                pos.update(h=newh, F=f[execution], mark=mark, last=day)
                 daily_pnl = pos["cash"] + pos["q"] * mark - before
         else:
             daily_pnl = 0.0
             if i + holding < len(dates) and prev in m.panel.index:
                 sig = m.panel.loc[prev]
-                if np.isfinite(sig.signal) and abs(sig.signal) > threshold:
+                if np.isfinite(sig.signal) and abs(sig.signal) > active_threshold:
                     try:
                         c, p, f = m.quote(day, sig.expiry, sig.strike)
                     except KeyError:
@@ -190,7 +215,7 @@ def run(
                         c = None
                     if (
                         c is not None
-                        and min(c.open, p.open, f.open) > 0
+                        and positive_quotes(c[execution], p[execution], f[execution])
                         and (sig.expiry - day).days > 7
                     ):
                         q = 1 if sig.signal > 0 else -1
@@ -206,8 +231,12 @@ def run(
                                 black(sig.forward, sig.strike, tau, r, vols[1], True)[1]
                             )
                         )
-                        mark = c.open + p.open
-                        turnover = abs(h) * f.open
+                        if rule == "unhedged":
+                            h = 0.0
+                        if not np.isfinite(h):
+                            raise ValueError("Invalid entry hedge")
+                        mark = c[execution] + p[execution]
+                        turnover = abs(h) * f[execution]
                         cost = cost_mult * (0.002 * mark + 0.0001 * turnover)
                         count += 1
                         pos = dict(
@@ -218,7 +247,7 @@ def run(
                             strike=sig.strike,
                             cash=-q * mark - cost,
                             mark=mark,
-                            F=f.open,
+                            F=f[execution],
                             last=day,
                             entry_i=i,
                             entry_date=day,
@@ -247,7 +276,7 @@ def run(
             )
         )
     d = pd.DataFrame(daily)
-    t = pd.DataFrame(trades)
+    t = pd.DataFrame(trades, columns=["trade_id", "entry_date", "exit_date", "expiry", "strike", "direction", "entry_signal", "pnl", "holding_sessions"])
     if pos is not None:
         raise AssertionError("Unclosed position")
     if not np.allclose(
@@ -263,6 +292,7 @@ def run(
     std = d.net_pnl.std(ddof=1)
     metric = dict(
         rule=rule,
+        execution=execution,
         threshold=threshold,
         cost_multiplier=cost_mult,
         rebalance_sessions=rebalance,
@@ -280,7 +310,7 @@ def run(
         long_trades=int((t.direction == 1).sum()) if len(t) else 0,
         short_trades=int((t.direction == -1).sum()) if len(t) else 0,
     )
-    return d, t, metric, pd.DataFrame(events)
+    return d, t, metric, pd.DataFrame(events, columns=["date", "event"])
 
 
 def experiment(root):
@@ -354,8 +384,8 @@ def experiment(root):
         futures_cost_notional_fraction=0.0001,
         fixed_reporting_capital=100000,
         paired_trade_mean_difference=float(diff.mean()),
-        paired_trade_bootstrap_95=list(np.quantile(boot, [0.025, 0.975])),
-        bootstrap_caveat="IID trade bootstrap is descriptive; serial dependence can invalidate nominal coverage.",
+        paired_trade_bootstrap_95=(list(np.quantile(boot, [0.025, 0.975])) if len(diff) >= 20 else None),
+        bootstrap_caveat="Suppressed below 20 trades; above that, IID bootstrap remains descriptive and ignores serial dependence.",
         execution="Prior-close signal and delta, next-session opening-price execution",
         sizing="One signed straddle unit with fractional futures; no exchange lot or margin enforcement",
         scope="Core replication plus historical adaptation. No GARCH, Heston or exact statutory cost schedule.",

@@ -33,3 +33,8 @@ These are not necessary to reproduce the current results:
 Ahmad & Wilmott, “Which Free Lunch Would You Like Today, Sir?: Delta Hedging, Volatility Arbitrage and Optimal Portfolios”, Wilmott Magazine, November 2005, pp.64–79.
 Publisher: https://www.wilmott.com/which-free-lunch-would-you-like-today-sir-delta-hedging-volatility-arbitrage-and-optimal-portfolios-riaz-ahmad-and-paul-wilmott/
 Academic paper mirror: https://citeseerx.ist.psu.edu/document?doi=22554822cff90a56962f8ce4327587e86a42f1dc&repid=rep1&type=pdf
+
+
+## Integrated parser revision
+
+Joel’s legacy/UDiFF parser is now integrated into `src/data.py`; existing raw ZIPs rebuild the same empirical sample. Legacy parsing alone does not supply missing spot history, calendars, synchronized quotes or margins. The optional `data_pipeline.bhavcopy` helpers prefer legacy URLs before 8 July 2024 and UDiFF thereafter; formats overlapped earlier. Missing archives are not automatically holidays. Only the special weekend session in the completed sample is explicitly included; review official calendars before extending dates. The project does not use Yahoo or FRED fallback data in the submitted results.

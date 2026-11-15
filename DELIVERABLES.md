@@ -3,13 +3,14 @@
 ## Submit
 1. `deliverables/project_report.pdf` — four-page final report.
 2. `deliverables/project_presentation_final.pptx` — 16 editable slides with speaker notes, planned for about 17 minutes plus questions.
-3. Source-code folder — `src`, `tests`, `run_project.py`, `download_data.py`, `requirements.txt` and `README.md`.
+3. Source-code folder — `src`, `data_pipeline`, `tests`, `run_project.py`, `download_data.py`, `requirements.txt` and `README.md`.
 
 Include `data/clean` and `results` with the code when submission size permits. They allow the instructor to reproduce and inspect the study without downloading market data.
 
 ## Study and rehearse
-- `docs/THEORY_AND_VIVA.md`: derivation, financial accounting and 15 viva questions.
+- `docs/THEORY_AND_VIVA.md`: derivation, financial accounting and 23 viva questions.
 - `docs/PRESENTATION_NOTES.md`: slide-by-slide speaking notes.
+- `docs/AUDIT_AND_INTEGRATION.md`: integrated pipeline, independently found issues, fixes and remaining limitations.
 - `docs/report_source.md`: editable report text.
 - `DATA_DOWNLOAD_GUIDE.md`: official sources and optional additional data.
 

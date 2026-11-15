@@ -1,3 +1,5 @@
+> Historical overview from the initial version. For current scope, tests and audit conclusions, use [README.md](README.md) and [the audit](docs/AUDIT_AND_INTEGRATION.md).
+
 # MAC F244: Volatility Arbitrage and Delta Hedging on NIFTY Options
 
 Core replication of Ahmad & Wilmott (2005), with an empirical NIFTY adaptation.

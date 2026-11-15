@@ -1,7 +1,7 @@
 __pycache__/
 .venv/
 .DS_Store
-data/raw/
+data/raw
 build/node_modules/
 build/matplotlib/
 build/slides/

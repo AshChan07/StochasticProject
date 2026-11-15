@@ -62,7 +62,7 @@ At yesterday's close choose an eligible monthly expiry, nearest liquid strike, d
 10. Why use an assumed rate and costs? To keep the experiment reproducible without inventing a statutory schedule. Their levels are disclosed and cost sensitivity is reported.
 11. Why does equal actual/implied volatility not give exactly zero P&L on every simulated path? Discrete rebalancing produces error even when the option is correctly priced.
 12. Does an all-positive simulated sample prove arbitrage in practice? No. It is conditional on model assumptions, selected parameters, and a finite simulation sample.
-13. What changed from the proposal? The implemented scope uses July 2024–December 2025, EWMA, a five-session holding period, fixed per-unit sizing, and simple all-in cost proxies. GARCH, VIX, Heston, fixed-vega sizing, and Greek attribution are unimplemented extensions.
+13. What changed from the proposal? The implemented scope uses July 2024–December 2025, EWMA, a five-session holding period, fixed per-unit sizing, and simple all-in cost proxies. GARCH, VIX, Heston and fixed-vega sizing remain unimplemented extensions. Approximate Greek attribution with a residual has now been added.
 14. Why fixed contract tracking? Replacing a held strike by each day's ATM strike would introduce hidden trades and invalidate P&L.
 15. What is the strongest conclusion? The simulation validates the theoretical difference between terminal replication risk and path-dependent gains. The historical study tests how a practical forecast hedge behaves under explicitly simplified assumptions.
 
@@ -71,3 +71,51 @@ Ahmad & Wilmott (2005), Wilmott Magazine, November, pp.64–79. Paper URL: https
 Black (1976), The Pricing of Commodity Contracts, Journal of Financial Economics 3, 167–179.
 Shreve (2004), Stochastic Calculus for Finance II, Chapters 4–5.
 J.P. Morgan/Reuters (1996), RiskMetrics Technical Document, 4th edition (EWMA convention).
+
+## Futures derivation: the missing bridge
+
+Let F be the matched-expiry futures price, with dF = a F dt + sigma_F F dB under P. Use a premium-paid European option V(F,t; sigma_i) and deterministic continuously compounded rate r. Under Q the futures drift is zero, so Black-76 satisfies
+
+    V_t + 0.5 sigma_i^2 F^2 V_FF - r V = 0.
+
+Unlike shares, newly settled futures have zero value: there is no -delta*F term in wealth. For one long option and h = -delta_h futures, wealth is W = V + C and the self-financing cash account obeys
+
+    dC = r C dt - delta_h dF.
+
+Hence, for constant implied volatility,
+
+    dW - r W dt = 0.5 (sigma_F^2 - sigma_i^2) F^2 Gamma_i dt
+                  + (Delta_i - delta_h) dF.
+
+The residual drift is a F dt, not (a-r) F dt: no futures principal is borrowed. Delta is V_F = exp(-r tau) N(d1) for a call; the put delta subtracts exp(-r tau). The discount factor is needed because these options have premiums paid upfront. This is not a futures-style-margined option contract.
+
+With known constant actual volatility, the discounted terminal gain is V(F_0,0;sigma_F) - V(F_0,0;sigma_i). With constant implied delta, the explicit dB term vanishes while the gamma integral remains random. The independent `simulate_futures` experiment verifies this statement using cash plus variation margin, with no stock-principal cash flows.
+
+For an index spot S with deterministic dividend yield q_d and rates r, fixed-maturity F = S exp((r-q_d)(T-t)). Applying Ito gives dF/F = (mu-r+q_d)dt + sigma_S dB. Thus fixed-maturity spot and futures share diffusion volatility in this ideal model. Real carry/basis fluctuations break this exact link. The spot EWMA is a proxy for futures volatility; it is not automatically its true diffusion coefficient. Using the observed matched futures avoids explicitly estimating dividends but does not abolish basis risk.
+
+## Changing IV and the limits of a volatility signal
+
+Write I_t for stochastic implied volatility and V = V(F,t,I). With constant r, Ito in two variables adds
+
+    Vega dI + 0.5 Volga d[I] + Vanna d[F,I]
+
+to the futures wealth equation above, with sigma_i replaced by the current I in the PDE term. Here Volga = V_II, Vanna = V_FI, and brackets denote quadratic covariation. Delta hedging alone does not remove these terms, jumps or discrete hedge error. An average of call and put IVs does not define a full arbitrage-free surface.
+
+Even with constant IV, delta-hedged P&L is a gamma-weighted integral of variance differences, not just realized volatility minus quoted IV. Our signal compares a flat EWMA forecast to maturity-dependent IV. Under an ideal EWMA/IGARCH forecast the expected future daily variance is flat, but the five-day evaluation target, 14–65-day option maturity, stochastic IV and gamma weights are different objects. The signal is therefore a heuristic for a risky volatility trade, not proof of mispricing. An implied-realized spread can compensate investors for volatility and jump risk.
+
+Calendar tau uses days/365 while return variance is annualized at 252 sessions. This conventional approximation does not model weekend/event variance separately. A refined implementation would estimate a variance clock and match the forecast horizon to each option.
+
+## Greek attribution: explain rather than predict
+
+For each held open-to-open interval, `greek_attribution_*.csv` computes signed option delta*dF, 0.5*gamma*dF^2, theta*dt and vega*dIV from the earlier opening mark. The future opening IV is used only after the fact. The residual makes the sum equal actual option-price P&L and includes cross terms, higher orders, smile/basis and quote effects. Invalid endpoint IV produces a flagged missing decomposition, never invented Greeks. Add the separately recorded futures, financing and costs to obtain total portfolio P&L. The residual is not automatically a trading error or an arbitrage gain.
+
+## More questions to prepare for
+
+16. **Why not use the parity forward for the futures hedge?** Parity gives an option-consistent forward, not a traded hedge. If that forward differs from F, its sensitivity to F and the basis dynamics need modelling. We keep futures in prices/deltas and report parity discrepancies diagnostically.
+17. **Does changing the execution convention matter?** Yes. Next-close execution reverses the selected-threshold hedge ranking. It also changes intraday exposure, so it is a stress check, not a measured slippage adjustment.
+18. **What did the rolling test add?** Monthly calibration uses past data only and carries positions across test-month boundaries. It selects the same threshold and does not cure the small number of trades. Because the sample was already inspected, it is retrospective robustness evidence.
+19. **What does the unhedged control establish?** It separates the observed contribution of the hedge from the same option-entry policy. Three profitable short straddles alone do not establish forecast skill or a hedge advantage.
+20. **Can collateral be ignored when calling this excess P&L?** The ledger starts with zero wealth and finances the premium. Adding capital earning the same rate gives incremental wealth above that risk-free account. Actual margin, restricted short-option proceeds and asymmetric funding change implementability; our denominator of 100,000 is only illustrative.
+21. **Why no confidence interval on three trades?** Resampling three observations cannot supply credible tail or dependence information. The interval is suppressed. More trades and a design accounting for dependence are needed.
+22. **Are these futures marked exactly as NSE settles them?** No. We credit opening-to-opening variation at each observation and accrue interest on starting cash. Actual daily settlement/intraday margin timing can change funding; this discrete convention is explicit and tested.
+23. **Does better RMSE establish profitable volatility trading?** No. Forecast loss on spot returns, pricing risk premia, hedge risk and execution costs are separate questions. The rolling-60 comparator supplies context, not significance.

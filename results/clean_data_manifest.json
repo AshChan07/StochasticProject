@@ -16,12 +16,12 @@
   },
   {
     "file": "data/clean/nifty_options_chain.csv.gz",
-    "bytes": 5851765,
-    "sha256": "561a3117affbe9dd6c7208aa5cf4331d65ffe1e5132a7650dafe01eb8afaf5d3"
+    "bytes": 6848994,
+    "sha256": "9348f0e6c4c924adcf484f102ef73e2503a92f17ca57dd5d08992b637a0d0526"
   },
   {
     "file": "data/clean/signal.csv",
-    "bytes": 60003,
-    "sha256": "0d37782c38969917a2b15625acc73061bedb45fbbf162955480672b480f7c9ca"
+    "bytes": 59987,
+    "sha256": "70a3a883cc25a320426fad04f2da0f5fa5a7ddcf6679a24b3c0f420967711fe0"
   }
 ]

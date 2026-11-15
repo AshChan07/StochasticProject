@@ -20,6 +20,28 @@ This project investigates that question through:
 
 **Status:** The core implementation, cleaned historical data, numerical results, four-page report, presentation and viva notes are included. The calibrated strategy produces only **three test-period trades**, so the historical results are exploratory, not evidence of reliable arbitrage or hedge superiority.
 
+## Integrated pipeline and independent audit
+
+The November 15 revision integrates Joel’s supplied parser, parity-forward diagnostics, independent IV solver and archive fixtures into the working project. Read [AUDIT_AND_INTEGRATION.md](docs/AUDIT_AND_INTEGRATION.md) for the findings, fixes, evidence and remaining limitations.
+
+The theory now derives **both stock and futures wealth equations**, with the correct premium-paid futures delta and no financed futures principal. The viva guide explains stochastic IV, vega/vanna/volga, basis risk, variance risk premia and the mismatch between a five-session forecast check and an option’s maturity. A separate futures Monte Carlo verifies the accounting.
+
+**New evidence changes the interpretation:** at the selected threshold, next-close execution gives 97.44 points for implied delta and 87.56 for forecast delta, reversing the next-open ranking. The identical next-open option trades without a hedge earn 147.99 points. These checks reinforce that three trades cannot establish superiority.
+
+Added outputs are **retrospective diagnostics on previously inspected data**, not a fresh independent test. Monthly expanding calibration carries open positions across month boundaries and retains the 3-point threshold in every fold. It does not create more independent observations.
+
+| New output under `results/` | Purpose |
+|---|---|
+| `futures_simulation.csv` | Separate theoretical replication with futures variation margin |
+| `parity_diagnostics.csv`, `audit_summary.json` | Option-implied forward vs traded futures; independent IV cross-check |
+| `execution_controls.csv` | Next-open/next-close and identical-entry unhedged controls |
+| `rate_sensitivity.csv` | Recompute IV/signals under 3%, 6.5%, 10% assumed rates; freeze threshold and strike choices |
+| `walk_forward.csv`, `walk_forward_daily_*.csv` | Monthly past-only recalibration with continuous test-position tracking |
+| `forecast_benchmark.csv` | EWMA vs rolling-60 volatility on matching five-session targets |
+| `greek_attribution_*.csv` | Approximate delta/gamma/theta/vega attribution with residual and invalid-IV flags |
+
+Run the same `python run_project.py` command to regenerate these outputs. No extra downloads are needed. The integrated normalizer accepts legacy schemas, but rebuilding a legacy sample requires a separately validated spot series and an expanded calendar audit; the main empirical sample remains July 2024–December 2025. The supplied folder contained code, not additional real market data.
+
 ## Main deliverables
 
 | Deliverable | Location |
@@ -53,10 +75,20 @@ StochasticProject/
 │   ├── pricing.py                    # Black–Scholes, Black-76, delta and IV
 │   ├── simulation.py                 # GBM paths and self-financing stock hedge
 │   ├── data.py                       # Archive normalization and ATM selection
-│   └── backtest.py                   # EWMA, trading rules, ledger and analysis
+│   ├── backtest.py                   # EWMA, trading rules, ledger and analysis
+│   └── robustness.py                 # Futures replication and retrospective checks
+│
+├── data_pipeline/                    # Adapted modules from Joel’s supplied pipeline
+│   ├── __init__.py
+│   ├── config.py
+│   ├── bhavcopy.py                    # Legacy/UDiFF normalizer and archive helpers
+│   ├── forwards.py                    # Liquid-strike parity diagnostics
+│   └── iv.py                          # Independent IV implementation
 │
 ├── tests/
-│   └── test_project.py               # 14 automated checks
+│   ├── test_project.py               # Original 14 regression tests
+│   ├── test_audit.py                  # 16 additional audit tests
+│   └── pipeline_fixtures.py           # Synthetic archives from supplied pipeline
 │
 ├── data/
 │   ├── download_manifest.csv         # Source URLs, download status and hashes
@@ -99,6 +131,7 @@ StochasticProject/
 │   └── project_presentation_final.pptx
 │
 ├── docs/
+│   ├── AUDIT_AND_INTEGRATION.md
 │   ├── THEORY_AND_VIVA.md
 │   ├── PRESENTATION_NOTES.md
 │   └── report_source.md               # Editable report text
@@ -184,7 +217,7 @@ python download_data.py --start 2025-01-01 --end 2025-12-31 --workers 3
 
 The parser processes all ZIPs already present in `data/raw/`. A narrower download request does **not** remove previously cached files or change the backtest’s fixed train/test dates. Use a separate cache and update the experiment explicitly if you intend to change the sample.
 
-**Format limitation:** This implementation supports the post-July-2024 UDiFF format. Extending into earlier years requires a legacy parser and calendar review. Extending beyond the current sample also requires checking special trading sessions.
+**Coverage limitation:** The integrated normalizer supports legacy and UDiFF schemas. The completed real-data experiment uses UDiFF from July 2024 onward. Earlier years still require a validated spot series and calendar review. Extending beyond the current sample also requires checking special trading sessions.
 
 If automated downloads fail, download the original ZIPs manually from [NSE derivatives reports](https://www.nseindia.com/all-reports-derivatives), place them in `data/raw/` without renaming them, and rebuild. Full instructions and optional sources are in [DATA_DOWNLOAD_GUIDE.md](DATA_DOWNLOAD_GUIDE.md).
 
@@ -302,7 +335,7 @@ See [results/RESULTS_SUMMARY.md](results/RESULTS_SUMMARY.md), [test_metrics.csv]
 
 ## Validation and reproducibility
 
-The included **14 tests** cover:
+The included **30 tests** cover the original checks below, plus dual-schema parsing, parity recovery, special sessions, nonfinite quote rejection, the Black-76 PDE, futures replication, independent IV inversion, empty trades, predecessor availability, execution timing, unhedged controls and held-contract retention:
 
 - A reference Black–Scholes price and put-call parity.
 - Futures delta against finite differences.
@@ -346,7 +379,7 @@ Read [build/README.md](build/README.md) for document-authoring requirements. Edi
 
 The historical study uses daily opening prices, which are not synchronized bid/ask quotes. Costs are illustrative all-in proxies, not an exact reconstruction of historical brokerage, STT and exchange fees. Exchange lot sizes, margin constraints, collateral costs and position limits are not enforced. Futures variation margin is approximated at each observation.
 
-The forecast is uncertain, implied volatility changes, and positions close before expiry. These features differ from the paper’s constant-volatility, continuous-trading benchmark. The descriptive IID trade bootstrap also ignores serial dependence and has little evidential value with three trades.
+The forecast is uncertain, implied volatility changes, and positions close before expiry. These features differ from the paper’s constant-volatility, continuous-trading benchmark. The paired-trade bootstrap interval is suppressed below 20 trades; even above that threshold, IID resampling would not account for serial dependence.
 
 The following proposal extensions are **not implemented**:
 
@@ -354,14 +387,14 @@ The following proposal extensions are **not implemented**:
 - India VIX benchmarking.
 - Heston calibration and hedging.
 - Fixed-vega sizing.
-- Full Greek-based P&L decomposition.
+- Exact continuous-time Greek attribution; the implemented discrete Taylor decomposition includes a residual.
 - The originally proposed 2019–2026 sample.
 
-The completed scope uses EWMA, July 2024–December 2025 data, fixed per-unit sizing and exact accounting attribution into option, futures, financing and costs.
+The completed scope uses EWMA, July 2024–December 2025 data, fixed per-unit sizing, exact accounting attribution, approximate Greek attribution, and the audit diagnostics described above.
 
 ## Team preparation and presentation responsibilities
 
-This is a proposed preparation split for Arnav, Rohan, Joel, Ashwath and Advay, based on the current 16-slide deck. It assigns learning and improvement ownership; it is not a claim about who originally wrote the code. Everyone should understand the overall experiment and its limitations.
+This is a proposed preparation split for Arnav, Rohan, Joel, Ashwath and Advay, based on the current 16-slide deck. It assigns learning and improvement ownership. Joel’s supplied pipeline is now incorporated with documented adaptations; this table is not a full code-authorship record. Everyone should understand the overall experiment and its limitations.
 
 ### Presentation allocation
 
@@ -377,6 +410,16 @@ The existing speaker notes total approximately 17 minutes. Times below follow th
 
 Each person should read their slide notes in [PRESENTATION_NOTES.md](docs/PRESENTATION_NOTES.md), understand the corresponding figure or table, and explain their section without reading the slide verbatim.
 
+### New preparation priorities after the audit
+
+- **Arnav:** Derive the futures equation as well as the stock equation; explain the discounted delta, zero-value futures and stochastic-IV terms.
+- **Rohan:** Explain the additional futures simulation, its distinct theoretical target and why stock financing cannot be copied into a futures ledger.
+- **Joel:** Explain the integrated parser, July 2024 routing boundary, same-date futures expiry matching, all-strike retention and why parity remains a diagnostic.
+- **Ashwath:** Explain the execution-ranking reversal, unhedged control and Greek residual. Do not describe 165.80 points as proof of hedge superiority.
+- **Advay:** Explain the retrospective status of the added checks, monthly position continuity, suppressed bootstrap interval and remaining margin/quote limitations.
+
+Several original improvement suggestions below are now partially addressed by the audit. Use them for verification and further work, not as claims that the new diagnostics are still absent.
+
 ### Individual viva preparation
 
 Prepare short answers to these questions and practice explaining any equation or number you use:
@@ -389,7 +432,7 @@ Prepare short answers to these questions and practice explaining any equation or
 
 ### Improvement ownership
 
-These are **proposed tasks, not completed features**. Finish the core understanding and rehearsal first. Prioritize the small checks below before adding models or changing the experiment close to submission.
+These are follow-up ownership suggestions; consult the audit section for work already implemented. Finish the core understanding and rehearsal first. Prioritize the small checks below before adding models or changing the experiment close to submission.
 
 | Owner | First improvement to attempt | Completion criterion | Optional extension if time permits |
 |---|---|---|---|

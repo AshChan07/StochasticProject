@@ -21,3 +21,9 @@ Forward targets use the following five close-to-close returns. Calibration targe
 
 ## Verification
 14 automated tests passed. Pricing references, put-call parity, IV inversion, finite-difference delta, simulation convergence, lagged decisions, cost sensitivity and ledger identities are covered. See build/test_results.txt.
+
+## Audit revision
+
+The baseline next-open results above are unchanged. Next-close fills using lagged decisions reverse the selected-threshold ranking: 97.44 points implied vs 87.56 forecast. The same next-open entries unhedged yield 147.99 points. The three-trade bootstrap interval is now suppressed. See `execution_controls.csv`.
+
+Futures replication at 1,008 rebalances: actual-hedge mean 3.76705, theory 3.76494, standard error 0.00315. EWMA test RMSE 0.02471 vs rolling-60 0.03451; QLIKE 0.16318 vs 0.21431. Parity basis median absolute 1.84 bp, 95th percentile 6.37 bp. All added empirical checks are retrospective; no new independent validation claim is made. Full findings: `docs/AUDIT_AND_INTEGRATION.md`.

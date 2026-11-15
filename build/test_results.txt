@@ -1,3 +1,28 @@
+/Users/ashwath/.matplotlib is not a writable directory
+Matplotlib created a temporary cache directory at /var/folders/dc/vq8h47013b7_3hhgrqcmkc8w0000gp/T/matplotlib-n2x4wxsu because there was an issue with the default path (/Users/ashwath/.matplotlib); it is highly recommended to set the MPLCONFIGDIR environment variable to a writable directory, in particular to speed up the import of Matplotlib and to better support multiprocessing.
+
+Fontconfig error: No writable cache directories
+	/opt/homebrew/var/cache/fontconfig
+	/Users/ashwath/.cache/fontconfig
+	/Users/ashwath/.fontconfig
+2026-11-15 16:33:07.757 system_profiler[9814:628202] XType: Using static font registry.
+Matplotlib is building the font cache; this may take a moment.
+test_black_pde_and_delta_discount (test_audit.AuditTests.test_black_pde_and_delta_discount) ... ok
+test_both_schema_normalizers (test_audit.AuditTests.test_both_schema_normalizers) ... ok
+test_futures_equal_vol_same_hedge (test_audit.AuditTests.test_futures_equal_vol_same_hedge) ... ok
+test_futures_replication_converges (test_audit.AuditTests.test_futures_replication_converges) ... ok
+test_greek_approximation_small_step (test_audit.AuditTests.test_greek_approximation_small_step) ... ok
+test_independent_iv_solver (test_audit.AuditTests.test_independent_iv_solver) ... ok
+test_nan_quotes_are_not_executable (test_audit.AuditTests.test_nan_quotes_are_not_executable) ... ok
+test_parity_recovers_fixture_forward (test_audit.AuditTests.test_parity_recovers_fixture_forward) ... ok
+test_schema_boundary_is_july (test_audit.AuditTests.test_schema_boundary_is_july) ... ok
+test_special_saturday (test_audit.AuditTests.test_special_saturday) ... ok
+test_all_held_contracts_retained (test_audit.HistoricalAuditTests.test_all_held_contracts_retained) ... ok
+test_empty_trades_have_schema (test_audit.HistoricalAuditTests.test_empty_trades_have_schema) ... ok
+test_invalid_configuration (test_audit.HistoricalAuditTests.test_invalid_configuration) ... ok
+test_next_close_keeps_decision_time (test_audit.HistoricalAuditTests.test_next_close_keeps_decision_time) ... ok
+test_no_predecessor_rejected (test_audit.HistoricalAuditTests.test_no_predecessor_rejected) ... ok
+test_unhedged_control_same_trades (test_audit.HistoricalAuditTests.test_unhedged_control_same_trades) ... ok
 test_cost_sensitivity (test_project.HistoricalTests.test_cost_sensitivity) ... ok
 test_dates_and_coverage (test_project.HistoricalTests.test_dates_and_coverage) ... ok
 test_future_signals_do_not_change_past (test_project.HistoricalTests.test_future_signals_do_not_change_past) ... ok
@@ -14,6 +39,6 @@ test_equal_vol_fair_price (test_project.SimulationTests.test_equal_vol_fair_pric
 test_replication_and_convergence (test_project.SimulationTests.test_replication_and_convergence) ... ok
 
 ----------------------------------------------------------------------
-Ran 14 tests in 0.824s
+Ran 30 tests in 2.111s
 
 OK

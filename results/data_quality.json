@@ -30,10 +30,5 @@
   "rate_assumption": 0.065,
   "spot_source": "NSE UDiFF UndrlygPric median per day",
   "monthly_selection": "Exact expiry match with NIFTY index futures",
-  "notes": "Unavailable weekdays are not automatically classified as holidays. IV validity across all strikes includes deep ITM/OTM illiquid contracts.",
-  "verified_closed_weekdays": 19,
-  "unresolved_dates": [],
-  "special_sessions": [
-    "2025-02-01"
-  ]
+  "notes": "Unavailable weekdays are not automatically classified as holidays. IV validity across all strikes includes deep ITM/OTM illiquid contracts."
 }

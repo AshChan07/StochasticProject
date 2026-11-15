@@ -18,13 +18,17 @@ Applying Itô’s formula and substituting C = W − V<sub>i</sub> + Δ<sub>h</s
 
 dW − rW dt = ½(σ<super>2</super> − σ<sub>i</sub><super>2</super>)S<super>2</super>Γ<sub>i</sub> dt<br/>+ (Δ<sub>i</sub> − Δ<sub>h</sub>)[(μ − r)S dt + σS dB].
 
-The rW term distinguishes wealth from an instantaneous excess P&amp;L. Multiplying the right-hand side by e<super>−rt</super> gives discounted wealth changes. Quadratic variation creates the gamma term; residual delta creates the Brownian term.
+The known-actual-volatility hedge replicates the payoff: discounted terminal gain equals V(σ) - V(σ<sub>i</sub>). With implied delta, the explicit Brownian term cancels, but the gamma integral remains path-dependent. These are continuous-trading, constant-volatility, cost-free limits; pricing is under Q while realized gains are under P.
 
-<b>Known actual-volatility hedge:</b> with Δ<sub>h</sub> = Δ(σ), continuous replication implies e<super>−rT</super>W<sub>T</sub> = V(S<sub>0</sub>,0;σ) − V(S<sub>0</sub>,0;σ<sub>i</sub>). Terminal profit is fixed, although intermediate market marks vary.
+Futures hedge: a different financing equation
 
-<b>Constant implied-volatility hedge:</b> with Δ<sub>h</sub> = Δ<sub>i</sub>, the explicit Brownian term cancels. Discounted terminal P&amp;L equals the integral of ½e<super>−rt</super>(σ<super>2</super>−σ<sub>i</sub><super>2</super>)S<super>2</super>Γ<sub>i</sub> over time. Its sign is fixed for a long vanilla option under the assumptions, but its magnitude depends on the path.
+For matched futures, dF = aF dt + σ<sub>F</sub>F dB under P. Black-76 [4] satisfies V<sub>t</sub> + ½σ<sub>i</sub><super>2</super>F<super>2</super>V<sub>FF</sub> - rV = 0. Futures require no principal payment: W = V + C and dC = rC dt - Δ<sub>h</sub>dF. Therefore:
 
-These statements require constant volatility, continuous trading and no costs. Changing implied volatility introduces additional risks. A forecast is not known actual volatility, and a short historical holding period does not inherit the terminal guarantee. Pricing uses Q; simulation and historical P&amp;L are evaluated under P [2].
+dW - rW dt = ½(σ<sub>F</sub><super>2</super> - σ<sub>i</sub><super>2</super>)F<super>2</super>Γ<sub>i</sub>dt + (Δ<sub>i</sub> - Δ<sub>h</sub>)dF.
+
+Call futures delta is e<super>-rτ</super>N(d<sub>1</sub>), not stock delta. Deterministic carry gives F = Se<super>(r-q)(T-t)</super> and equal spot/futures diffusion volatility; actual basis changes make spot EWMA only a proxy. Stochastic implied volatility I adds Vega dI + ½Volga d[I] + Vanna d[F,I]. Delta hedging alone does not remove these risks.
+
+A five-session exit also differs from hold-to-expiry replication. The forecast-minus-IV signal is a heuristic: P&amp;L depends on gamma-weighted variance, changing IV and risk premia, not an unweighted volatility gap. The full derivation and assumptions are in the viva guide.
 
 
 --- PAGE BREAK ---
@@ -50,7 +54,7 @@ Figure 1. Simulated discounted P&amp;L. Teal: actual-volatility hedge. Orange: i
 
 Figure 2. Replication-error standard deviation, 6,000 paths per frequency. The fitted log–log slope is −0.496, close to the −0.5 reference.
 
-The 30%-actual / 20%-implied simulation produced positive terminal P&amp;L on all 20,000 paths for both rules. This finite-sample observation is not a guarantee for discrete hedging or market trading. Equal-volatility pricing, parity, numerical delta and ledger reconciliation are checked by the accompanying tests.
+A separate futures replication uses premium financing plus variation margin. At 1,008 rebalances its mean discounted actual-hedge gain is 3.76705 versus theory 3.76494 (standard error 0.00315). This checks the futures extension; finite simulated gains are not practical arbitrage guarantees.
 
 
 --- PAGE BREAK ---
@@ -66,7 +70,7 @@ EWMA variance uses 60 initial returns and λ = 0.94 [5], then updates using only
 
 Buy above +k, sell below −k. Execute at the next session’s recorded opens. Hold one straddle unit for five sessions, with earlier exit at seven calendar days to expiry. No overlapping positions or new entry on an exit day. Keep strike and expiry fixed. Futures quantities, including rebalances, use the preceding close and may be fractional. Opening quotes can be asynchronous, so execution is approximate.
 
-Calibration runs 7 October 2024–30 June 2025. Among k = 0, 1, 2, 3 volatility points with at least ten training trades, the largest average net P&amp;L across both hedge rules selects <b>k = 3 points</b>. The untouched test period is July–December 2025. Selection is on training P&amp;L rather than test performance.
+Calibration runs 7 October 2024–30 June 2025. Among k = 0, 1, 2, 3 volatility points with at least ten training trades, the largest average net P&amp;L across both hedge rules selects <b>k = 3 points</b>. The original held-out test period is July–December 2025; added audit diagnostics reuse this already-inspected sample. Selection is on training P&amp;L rather than test performance.
 
 Base costs are illustrative all-in proxies: 0.20% of option premium each way and 1 bp of traded futures notional. Cash financing and daily futures gains are explicit. These proxies do not reconstruct historical taxes, brokerage or margin. P&amp;L is per index unit; exchange lot and collateral constraints are not enforced.
 
@@ -102,16 +106,16 @@ Cost multiplier | Implied net P&L | Forecast net P&L
 
 5x | 110.06 | 108.52
 
-Higher costs reduce both outcomes and reverse the small hedge ranking at 5x costs. As a prespecified threshold diagnostic, k = 0 generates 21 test trades and net P&amp;L of 46.09 (implied) and 103.50 (forecast). We do not replace the selected threshold with a better-looking test alternative. Full threshold and hedge-frequency sensitivities accompany the code.
+Higher costs reduce both outcomes and reverse the small hedge ranking at 5x costs. In the threshold diagnostic, k = 0 generates 21 test trades and net P&amp;L of 46.09 (implied) and 103.50 (forecast). We do not replace the selected threshold with a better-looking test alternative. Full threshold and hedge-frequency sensitivities accompany the code.
 
-The simulation strongly supports the constant-volatility replication identity and the N<super>−1/2</super> error rate. The market comparison is exploratory: few trades, one test period, uncertain forecasts, changing IV, asynchronous opening prints, fractional sizing and omitted margin effects constrain inference. An IID paired-trade bootstrap of the mean hedge difference spans zero and is not reliable formal evidence with three trades.
+The simulation strongly supports the constant-volatility replication identity and the N<super>−1/2</super> error rate. The market comparison is exploratory: few trades, one test period, uncertain forecasts, changing IV, asynchronous opening prints, fractional sizing and omitted margin effects constrain inference. The three-trade bootstrap interval is suppressed. Next-close execution reverses the ranking: 97.44 points for implied delta versus 87.56 for forecast delta; the same next-open trades without futures earn 147.99 points. These retrospective controls show sensitivity, not independent confirmation.
 
 <b>Conclusion.</b> Choosing the hedge volatility changes the risk profile. Known-volatility replication controls terminal risk in the ideal model. Forecast-volatility hedging in this NIFTY sample produces a slightly larger net gain, but the evidence does not support a general superiority or an implementable arbitrage claim. A stronger study requires longer independent samples, synchronized bid/ask quotes and historical contract-level costs.
 
-<b>Implemented scope.</b> EWMA, real daily NSE data, the two hedge rules and cost/frequency sensitivity are complete. GARCH, VIX benchmarking, Heston calibration, fixed-vega sizing, 2019–2026 coverage and Greek-level attribution remain extensions. Exact accounting attribution separates option, futures, financing and costs.
+<b>Implemented scope.</b> Joel’s dual-schema normalizer, parity diagnostics and independent IV solver are integrated. Added checks cover rolling calibration, rate assumptions, a rolling-60 forecast baseline and approximate Greek attribution with a residual. GARCH, VIX, Heston, fixed-vega sizing, long historical coverage and realistic margins remain extensions.
 
 References and reproducibility
 
 [1] Ahmad, R. &amp; Wilmott, P. (2005). Which Free Lunch Would You Like Today, Sir? Wilmott Magazine, November, 64–79. Sections 3–4.<br/>[2] Shreve, S. E. (2004). Stochastic Calculus for Finance II. Springer, Chapters 4–5.<br/>[3] NSE. F&amp;O-UDiFF Common Bhavcopy Final. <link href="https://www.nseindia.com/all-reports-derivatives" color="#126c75">nseindia.com/all-reports-derivatives</link>. Source URLs and SHA-256 hashes in data/download_manifest.csv.<br/>[4] Black, F. (1976). The Pricing of Commodity Contracts. Journal of Financial Economics 3, 167–179.<br/>[5] J.P. Morgan/Reuters (1996). RiskMetrics Technical Document, 4th ed.
 
-Run: python run_project.py. Tests: python -m unittest discover -s tests -v. Fourteen tests cover pricing, IV inversion, causality, convergence and ledger identities. Numerical CSVs, individual trades, full assumptions and download instructions are included.
+Run: python run_project.py. Tests: python -m unittest discover -s tests -v. The regression suite covers both schemas, futures PDE/replication, invalid quotes, causality, convergence and ledger identities. Numerical CSVs, individual trades, full assumptions and download instructions are included.
