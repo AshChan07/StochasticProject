@@ -11,7 +11,7 @@
   "option_cost_fraction": 0.002,
   "futures_cost_notional_fraction": 0.0001,
   "fixed_reporting_capital": 100000,
-  "paired_trade_mean_difference": 2.193329466788176,
+  "paired_trade_mean_difference": 2.193329466788178,
   "paired_trade_bootstrap_95": [
     -10.42035724306993,
     11.640954889341629
@@ -19,5 +19,13 @@
   "bootstrap_caveat": "IID trade bootstrap is descriptive; serial dependence can invalidate nominal coverage.",
   "execution": "Prior-close signal and delta, next-session opening-price execution",
   "sizing": "One signed straddle unit with fractional futures; no exchange lot or margin enforcement",
-  "scope": "Core replication plus historical adaptation. No GARCH, Heston or exact statutory cost schedule."
+  "scope": "Core replication plus historical adaptation with GARCH(1,1), Naive VRP Benchmark, and capacity sensitivity.",
+  "garch_params": {
+    "omega": 0.00019653039021766378,
+    "alpha": 0.005693270201936162,
+    "beta": 0.43479469023967804
+  },
+  "benchmark_net_pnl": 306.5769732166291,
+  "benchmark_trades": 21,
+  "benchmark_sharpe": 1.0874379035365096
 }

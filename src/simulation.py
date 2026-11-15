@@ -44,6 +44,9 @@ def run(root):
         a, pred = simulate(actual=actual)
         for i, rule in enumerate(["actual", "implied"]):
             x = a[i]
+            s = pd.Series(x)
+            q01 = float(np.percentile(x, 1))
+            q05 = float(np.percentile(x, 5))
             rows.append(
                 dict(
                     actual=actual,
@@ -52,10 +55,16 @@ def run(root):
                     paths=len(x),
                     rebalances=252,
                     theory_actual=pred,
-                    mean=x.mean(),
-                    std=x.std(ddof=1),
-                    se=x.std(ddof=1) / np.sqrt(len(x)),
-                    positive_fraction=(x > 0).mean(),
+                    mean=float(x.mean()),
+                    std=float(x.std(ddof=1)),
+                    se=float(x.std(ddof=1) / np.sqrt(len(x))),
+                    skewness=float(s.skew()),
+                    excess_kurtosis=float(s.kurtosis()),
+                    var_95=float(-q05 if q05 < 0 else 0.0),
+                    var_99=float(-q01 if q01 < 0 else 0.0),
+                    cvar_95=float(-x[x <= q05].mean()) if (x <= q05).any() else 0.0,
+                    cvar_99=float(-x[x <= q01].mean()) if (x <= q01).any() else 0.0,
+                    positive_fraction=float((x > 0).mean()),
                 )
             )
             distributions[f"{actual}_{rule}"] = x
@@ -96,6 +105,28 @@ def run(root):
     fig1.savefig(fig / "simulation_distribution.png", dpi=190)
     plt.close(fig1)
     pd.DataFrame(hist).to_csv(out / "histogram.csv", index=False)
+
+    # Drift sensitivity analysis across mu in [-0.2, 0.3]
+    drift_rows = []
+    for mu in [-0.20, -0.10, 0.00, 0.10, 0.20, 0.30]:
+        a, pred = simulate(n=252, paths=10000, actual=0.3, implied=0.2, mu=mu, seed=244)
+        for i, rule in enumerate(["actual", "implied"]):
+            x = a[i]
+            drift_rows.append(
+                dict(
+                    mu=mu,
+                    actual=0.3,
+                    implied=0.2,
+                    rule=rule,
+                    paths=len(x),
+                    theory_actual=pred,
+                    mean=float(x.mean()),
+                    std=float(x.std(ddof=1)),
+                    error_vs_theory=float(x.mean() - pred),
+                )
+            )
+    pd.DataFrame(drift_rows).to_csv(out / "drift_sensitivity.csv", index=False)
+
     conv = []
     for n in [12, 26, 52, 126, 252, 504, 1008]:
         a, pred = simulate(n=n, paths=6000)

@@ -63,6 +63,12 @@ class SimulationTests(unittest.TestCase):
         self.assertAlmostEqual(f, 5)
         self.assertAlmostEqual(c, -100 * np.exp(0.05 * 3 / 365) + 5)
 
+    def test_drift_invariance_actual_vol(self):
+        pnl_pos, target = simulate(paths=3000, actual=0.3, implied=0.2, mu=0.25, seed=42)
+        pnl_neg, _ = simulate(paths=3000, actual=0.3, implied=0.2, mu=-0.25, seed=42)
+        self.assertAlmostEqual(float(pnl_pos[0].mean()), target, delta=0.15)
+        self.assertAlmostEqual(float(pnl_neg[0].mean()), target, delta=0.15)
+
 
 class HistoricalTests(unittest.TestCase):
     @classmethod
@@ -117,6 +123,27 @@ class HistoricalTests(unittest.TestCase):
             self.assertAlmostEqual(
                 row.entry_signal, self.market.panel.loc[prev, "signal"]
             )
+
+    def test_garch_forecasting(self):
+        params = self.market.garch_params
+        self.assertGreater(params["omega"], 0)
+        self.assertGreater(params["alpha"], 0)
+        self.assertGreater(params["beta"], 0)
+        self.assertLess(params["alpha"] + params["beta"], 1.0)
+        self.assertTrue((self.market.garch_forecast > 0).all())
+
+    def test_multi_position_capacity(self):
+        d1, t1, m1, _ = run(
+            self.market, "2025-07-01", "2025-12-31", threshold=0.03, max_positions=1
+        )
+        d2, t2, m2, _ = run(
+            self.market, "2025-07-01", "2025-12-31", threshold=0.03, max_positions=2
+        )
+        self.assertGreaterEqual(len(t2), len(t1))
+        self.assertAlmostEqual(d2.net_pnl.sum(), t2.pnl.sum(), places=7)
+        self.assertTrue(
+            np.allclose(d2.net_pnl, d2.option_pnl + d2.futures_pnl + d2.financing - d2.cost)
+        )
 
 
 if __name__ == "__main__":

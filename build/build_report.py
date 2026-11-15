@@ -348,5 +348,5 @@ doc = SimpleDocTemplate(
 doc.title = "Volatility Arbitrage and Delta Hedging on NIFTY Index Options"
 doc.author = "Arnav, Rohan, Joel, Ashwath, Advay"
 doc.build(story, onFirstPage=footer, onLaterPages=footer)
-(ROOT / "docs/report_source.md").write_text("\n\n".join(source))
+(ROOT / "docs/report_source.md").write_text("\n\n".join(source), encoding="utf-8")
 print(OUT / "project_report.pdf")
