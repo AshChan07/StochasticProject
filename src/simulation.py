@@ -69,7 +69,7 @@ def run(root):
             )
             distributions[f"{actual}_{rule}"] = x
     pd.DataFrame(rows).to_csv(out / "simulation_summary.csv", index=False)
-    pd.DataFrame(distributions).to_csv(out / "simulation_paths.csv.gz", index=False)
+    pd.DataFrame(distributions).to_csv(out / "simulation_paths.csv.gz", index=False, compression={"method": "gzip", "mtime": 0})
     fig1, axs = plt.subplots(1, 2, figsize=(10, 3.7))
     hist = []
     for ax, actual in zip(axs, [0.15, 0.3]):
@@ -126,7 +126,6 @@ def run(root):
                 )
             )
     pd.DataFrame(drift_rows).to_csv(out / "drift_sensitivity.csv", index=False)
-
     conv = []
     for n in [12, 26, 52, 126, 252, 504, 1008]:
         a, pred = simulate(n=n, paths=6000)

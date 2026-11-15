@@ -1,2 +1,2 @@
-rule,threshold,cost_multiplier,rebalance_sessions,sessions,trades,net_pnl,gross_pnl,cost,max_drawdown_points,sharpe_excess,hit_rate,mean_trade_pnl,return_fixed_capital,futures_turnover,long_trades,short_trades
-implied,-999.0,1.0,1,126,21,306.5769732166291,398.45579920051875,91.87882598388968,303.9873668439212,1.0874379035365096,0.5714285714285714,14.598903486506137,0.003065769732166291,451272.25983889686,0,21
+rule,execution,threshold,cost_multiplier,rebalance_sessions,sessions,trades,net_pnl,gross_pnl,cost,max_drawdown_points,sharpe_excess,hit_rate,mean_trade_pnl,return_fixed_capital,futures_turnover,long_trades,short_trades
+implied,open,-999.0,1.0,1,126,21,306.5769732166291,398.45579920051875,91.87882598388968,303.9873668439212,1.0874379035365096,0.5714285714285714,14.598903486506137,0.003065769732166291,451272.25983889686,0,21

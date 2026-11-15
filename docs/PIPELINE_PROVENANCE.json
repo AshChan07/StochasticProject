@@ -1,0 +1,26 @@
+{
+  "source": "User-supplied macf244-volarb folder, received 2026-11-15",
+  "adaptations": "See AUDIT_AND_INTEGRATION.md; selected modules integrated, not the original full orchestration",
+  "files": [
+    {
+      "file": "data_pipeline/bhavcopy.py",
+      "sha256": "4b90ebb59081423c4f324969fc5e372cb0c8964e95c3a343b445855fb7dffba0"
+    },
+    {
+      "file": "data_pipeline/config.py",
+      "sha256": "759ca848298f256c1f2b75de40997fbe1a736bfe5ea18af68b0fafaced7d7a78"
+    },
+    {
+      "file": "data_pipeline/iv.py",
+      "sha256": "1db6c23c827dc1453868a5323075690694dd320b162efa22f06ac4b62e7604f2"
+    },
+    {
+      "file": "data_pipeline/panel.py",
+      "sha256": "d74994e4fa288ddcb821e8ab4fab3cb6b2d309481f83b806e3a6453e9a349416"
+    },
+    {
+      "file": "tests/fixtures.py",
+      "sha256": "7450d8ee1c52d6ac538f350e73782eebb3fa8867075f3211d48b19ba56d4070b"
+    }
+  ]
+}

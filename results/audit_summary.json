@@ -1,0 +1,7 @@
+{
+  "iv_crosscheck_n": 1934,
+  "iv_max_absolute_difference": 4.62907490117459e-13,
+  "basis_median_abs_bps": 1.8449508361539915,
+  "interpretation": "All added analyses are retrospective robustness checks on previously inspected data; not new independent confirmation.",
+  "basis_p95_abs_bps": 6.368383331235406
+}

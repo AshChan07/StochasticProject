@@ -4,6 +4,8 @@ import zipfile, json
 from pathlib import Path
 import pandas as pd, numpy as np
 from .pricing import iv
+from data_pipeline.bhavcopy import normalise
+from data_pipeline.forwards import parity_forward
 
 
 def build(root, r=0.065):
@@ -11,65 +13,20 @@ def build(root, r=0.065):
     out.mkdir(parents=True, exist_ok=True)
     parts = []
     audit = []
-    use = [
-        "TradDt",
-        "FinInstrmTp",
-        "TckrSymb",
-        "XpryDt",
-        "StrkPric",
-        "OptnTp",
-        "OpnPric",
-        "ClsPric",
-        "SttlmPric",
-        "UndrlygPric",
-        "TtlTradgVol",
-        "OpnIntrst",
-        "NewBrdLotQty",
-    ]
     for zpath in sorted((root / "data/raw").glob("*.zip")):
-        with zipfile.ZipFile(zpath) as z:
-            d = pd.read_csv(
-                z.open(z.namelist()[0]), usecols=lambda x: x in use, low_memory=False
-            )
-        d = d[d.TckrSymb.eq("NIFTY") & d.FinInstrmTp.isin(["IDO", "IDF"])].copy()
-        expected = pd.to_datetime(zpath.name.split("_")[6], format="%Y%m%d")
-        dates = pd.to_datetime(d.TradDt).dt.normalize()
-        if not dates.eq(expected).all():
-            raise ValueError("Date mismatch " + str(zpath))
-        audit.append(dict(date=expected, rows=len(d)))
+        d = normalise(zpath)
+        if d.date.nunique() != 1:
+            raise ValueError("Archive must contain one session: " + str(zpath))
+        if zpath.name.startswith("BhavCopy_"):
+            expected = pd.to_datetime(zpath.name.split("_")[6], format="%Y%m%d")
+            if not d.date.eq(expected).all():
+                raise ValueError("Date mismatch " + str(zpath))
+        audit.append(dict(date=d.date.iloc[0], rows=len(d)))
         parts.append(d)
     if not parts:
-        raise RuntimeError(
-            "No NSE ZIPs. Run download_data.py or follow DATA_DOWNLOAD_GUIDE.md."
-        )
-    d = pd.concat(parts, ignore_index=True).rename(
-        columns={
-            "TradDt": "date",
-            "XpryDt": "expiry",
-            "StrkPric": "strike",
-            "OptnTp": "opt_type",
-            "OpnPric": "open",
-            "ClsPric": "close",
-            "SttlmPric": "settle",
-            "UndrlygPric": "underlying",
-            "TtlTradgVol": "volume",
-            "OpnIntrst": "oi",
-            "NewBrdLotQty": "lot_size",
-        }
-    )
-    for col in ["date", "expiry"]:
-        d[col] = pd.to_datetime(d[col]).dt.normalize()
-    for col in [
-        "strike",
-        "open",
-        "close",
-        "settle",
-        "underlying",
-        "volume",
-        "oi",
-        "lot_size",
-    ]:
-        d[col] = pd.to_numeric(d[col], errors="coerce")
+        raise RuntimeError("No NSE ZIPs. Run download_data.py first.")
+    d = pd.concat(parts, ignore_index=True).rename(columns={"contracts": "volume"})
+    d["FinInstrmTp"] = d.instrument.map({"FUTIDX": "IDF", "OPTIDX": "IDO"})
     f = d[d.FinInstrmTp.eq("IDF")].copy()
     o = d[d.FinInstrmTp.eq("IDO") & d.opt_type.isin(["CE", "PE"])].copy()
     keys = ["date", "expiry"]
@@ -91,13 +48,22 @@ def build(root, r=0.065):
         .rename("close")
         .reset_index()
     )
+    if len(spot) != d.date.nunique():
+        raise ValueError("Some dates lack archive spot data (e.g. legacy schema). Supply and validate a separate spot series before extending the experiment.")
     spread = d[d.underlying > 0].groupby("date").underlying.agg(["min", "max"])
     spread["relative_range"] = (spread["max"] - spread["min"]) / spot.set_index(
         "date"
     ).close
     if (spread.relative_range > 0.001).any():
         raise ValueError("Inconsistent spot in archive")
-    o.to_csv(out / "nifty_options_chain.csv.gz", index=False)
+    parity = []
+    for (day, expiry), group in o.groupby(["date", "expiry"]):
+        forward = parity_forward(group.rename(columns={"volume": "contracts"}), float(group["T"].iloc[0]), r)
+        traded = float(group.futures_close.iloc[0])
+        parity.append(dict(date=day, expiry=expiry, parity_forward=forward,
+                           futures_close=traded, basis_bps=1e4*(forward/traded-1)))
+    pd.DataFrame(parity).to_csv(root / "results/parity_diagnostics.csv", index=False)
+    o.to_csv(out / "nifty_options_chain.csv.gz", index=False, compression={"method": "gzip", "mtime": 0})
     f[keys + ["open", "close", "settle", "volume", "oi", "lot_size"]].to_csv(
         out / "nifty_futures.csv", index=False
     )

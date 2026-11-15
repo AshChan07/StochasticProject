@@ -50,6 +50,11 @@ def iv(price, F, K, T, r, put=False):
     )
     lo = np.full(price.shape, 1e-5)
     hi = np.full(price.shape, 5.0)
+    lo_price, _ = black(F, K, T, r, lo)
+    hi_price, _ = black(F, K, T, r, hi)
+    lo_price = np.where(put, lo_price - disc * (F-K), lo_price)
+    hi_price = np.where(put, hi_price - disc * (F-K), hi_price)
+    valid &= (price >= lo_price) & (price <= hi_price) & np.isfinite(r)
     for _ in range(55):
         mid = (lo + hi) / 2
         c, _ = black(F, K, T, r, mid)

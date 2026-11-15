@@ -1,5 +1,5 @@
 """Historical straddle experiment. Prior-close signals/deltas execute at next open.
-One signed straddle unit, fractional futures, no overlapping positions by default.
+One signed straddle unit, fractional futures, no overlapping positions.
 Costs are illustrative all-in proxies, NOT an exact historical statutory schedule.
 """
 
@@ -40,7 +40,9 @@ def fit_garch11(returns_train):
 
 
 class Market:
-    def __init__(self, root):
+    def __init__(self, root, ewma_lambda=0.94):
+        if not 0 < ewma_lambda < 1:
+            raise ValueError("EWMA lambda must lie in (0,1)")
         clean = root / "data/clean"
         o = pd.read_csv(
             clean / "nifty_options_chain.csv.gz", parse_dates=["date", "expiry"]
@@ -56,18 +58,20 @@ class Market:
             .sort_index()
         )
         returns = np.log(spot.close).diff()
+        if spot.index.duplicated().any() or not np.isfinite(spot.close).all() or (spot.close <= 0).any():
+            raise ValueError("Invalid spot dates or closes")
+        if self.options.index.duplicated().any() or self.futures.index.duplicated().any():
+            raise ValueError("Duplicate contract keys")
         self.spot = spot
-
-        # 1. EWMA Volatility forecast (RiskMetrics lambda=0.94)
+        # Initial 60 returns only, then a one-step EWMA update including today's close.
         v = np.full(len(spot), np.nan)
         ret = returns.to_numpy()
         if len(v) > 60:
             v[60] = np.mean(ret[1:61] ** 2)
             for j in range(61, len(v)):
-                v[j] = 0.94 * v[j - 1] + 0.06 * ret[j] ** 2
+                v[j] = ewma_lambda * v[j - 1] + (1 - ewma_lambda) * ret[j] ** 2
         self.forecast = pd.Series(np.sqrt(v * 252), index=spot.index)
-
-        # 2. GARCH(1,1) Volatility forecast
+        # GARCH(1,1) Volatility forecast
         train_rets = returns.loc[:"2025-06-30"]
         omega, alpha, beta = fit_garch11(train_rets)
         self.garch_params = dict(omega=float(omega), alpha=float(alpha), beta=float(beta))
@@ -88,7 +92,7 @@ class Market:
         panel["garch_forecast"] = self.garch_forecast
         panel["signal"] = panel.forecast_vol - panel.implied_vol
 
-        # 3. Vega & Vega-weighted mispricing
+        # Vega & Vega-weighted mispricing
         tau = np.maximum(panel["T"].to_numpy(dtype=float), 1e-6)
         panel["vega"] = vega(
             panel.forward.to_numpy(dtype=float),
@@ -101,15 +105,9 @@ class Market:
 
         panel.to_csv(clean / "signal.csv")
         self.panel = panel
-
-        # Forecast Evaluation for both EWMA and GARCH
         future = sum(returns.shift(-j) ** 2 for j in range(1, 6)) / 5 * 252
         evals = pd.DataFrame(
-            {
-                "forecast_vol": self.forecast,
-                "garch_vol": self.garch_forecast,
-                "future_realized_vol_5d": np.sqrt(future),
-            }
+            {"forecast_vol": self.forecast, "future_realized_vol_5d": np.sqrt(future)}
         )
         evals["target_end"] = pd.Series(spot.index, index=spot.index).shift(-5)
         evals["sample"] = np.where(evals.index > "2025-06-30", "test", "train")
@@ -118,15 +116,12 @@ class Market:
             "future_realized_vol_5d",
         ] = np.nan
         evals.to_csv(root / "results/forecast_evaluation.csv")
-
         metrics = []
         for period, g in evals.dropna().groupby("sample"):
-            rv = g.future_realized_vol_5d ** 2
-            # EWMA metrics
-            fv_ewma = g.forecast_vol ** 2
+            fv = g.forecast_vol**2
+            rv = g.future_realized_vol_5d**2
             metrics.append(
                 dict(
-                    model="EWMA",
                     sample=period,
                     n=len(g),
                     rmse_vol=float(
@@ -134,20 +129,7 @@ class Market:
                             ((g.forecast_vol - g.future_realized_vol_5d) ** 2).mean()
                         )
                     ),
-                    qlike=float((rv / fv_ewma - np.log(rv / fv_ewma) - 1).mean()),
-                )
-            )
-            # GARCH metrics
-            fv_garch = g.garch_vol ** 2
-            metrics.append(
-                dict(
-                    model="GARCH(1,1)",
-                    sample=period,
-                    n=len(g),
-                    rmse_vol=float(
-                        np.sqrt(((g.garch_vol - g.future_realized_vol_5d) ** 2).mean())
-                    ),
-                    qlike=float((rv / fv_garch - np.log(rv / fv_garch) - 1).mean()),
+                    qlike=float((rv / fv - np.log(rv / fv) - 1).mean()),
                 )
             )
         pd.DataFrame(metrics).to_csv(root / "results/forecast_metrics.csv", index=False)
@@ -157,6 +139,10 @@ class Market:
         p = self.options.loc[(day, expiry, strike, "PE")]
         f = self.futures.loc[(day, expiry)]
         return c, p, f
+
+
+def positive_quotes(*values):
+    return bool(np.all(np.isfinite(values)) and np.all(np.asarray(values) > 0))
 
 
 def ledger_increment(cash, hedge, Fprev, Fnew, days, r):
@@ -176,33 +162,44 @@ def run(
     r=0.065,
     holding=5,
     capital=100000.0,
+    execution="open",
+    threshold_schedule=None,
     force_direction=None,
     max_positions=1,
 ):
+    if rule not in {"implied", "forecast", "unhedged"}:
+        raise ValueError("Unknown hedge rule")
+    if execution not in {"open", "close"}:
+        raise ValueError("Execution must be open or close")
+    if holding < 1 or rebalance < 1 or (threshold < 0 and force_direction is None) or cost_mult < 0 or capital <= 0:
+        raise ValueError("Invalid experiment parameters")
     dates = m.spot.loc[start:end].index
+    if dates.empty or m.spot.index.get_loc(dates[0]) == 0:
+        raise ValueError("Sample needs observations and a preceding decision session")
     all_dates = m.spot.index
     daily = []
     trades = []
     events = []
-
-    # Fast-path for single position to guarantee 100% backward compatibility
+    pos = None
+    count = 0
     if max_positions <= 1:
-        pos = None
-        count = 0
         for i, day in enumerate(dates):
+            active_threshold = threshold if threshold_schedule is None else float(threshold_schedule.loc[day])
+            if not np.isfinite(active_threshold) or (active_threshold < 0 and force_direction is None):
+                raise ValueError("Invalid scheduled threshold")
             prev = all_dates[all_dates.get_loc(day) - 1]
             option_pnl = hedge_pnl = finance = cost = turnover = 0.0
             trade_id = 0
             if pos is not None:
                 c, p, f = m.quote(day, pos["expiry"], pos["strike"])
-                if min(c.open, p.open, f.open) <= 0:
+                if not positive_quotes(c[execution], p[execution], f[execution]):
                     raise ValueError(
                         f"Missing executable held-position opening quote {day}"
                     )
-                mark = c.open + p.open
+                mark = c[execution] + p[execution]
                 before = pos["cash"] + pos["q"] * pos["mark"]
                 pos["cash"], finance, hedge_pnl = ledger_increment(
-                    pos["cash"], pos["h"], pos["F"], f.open, (day - pos["last"]).days, r
+                    pos["cash"], pos["h"], pos["F"], f[execution], (day - pos["last"]).days, r
                 )
                 option_pnl = pos["q"] * (mark - pos["mark"])
                 trade_id = pos["id"]
@@ -213,9 +210,9 @@ def run(
                 )
                 if exit_now:
                     cost = cost_mult * (
-                        0.002 * abs(pos["q"]) * mark + 0.0001 * abs(pos["h"]) * f.open
+                        0.002 * abs(pos["q"]) * mark + 0.0001 * abs(pos["h"]) * f[execution]
                     )
-                    turnover = abs(pos["h"]) * f.open
+                    turnover = abs(pos["h"]) * f[execution]
                     pos["cash"] += pos["q"] * mark - cost
                     pnl = pos["cash"]
                     trades.append(
@@ -242,7 +239,9 @@ def run(
                             if rule == "implied"
                             else [m.forecast.loc[prev]] * 2
                         )
-                        if np.all(np.isfinite(vols)):
+                        if rule == "unhedged":
+                            newh = 0.0
+                        elif np.all(np.isfinite(vols)) and min(vols) > 0 and positive_quotes(pf.close):
                             tau = (pos["expiry"] - prev).days / 365
                             newh = -pos["q"] * (
                                 float(black(pf.close, pos["strike"], tau, r, vols[0])[1])
@@ -254,16 +253,16 @@ def run(
                             events.append(
                                 dict(date=day, event="hedge_carried_invalid_prior_iv")
                             )
-                    turnover = abs(newh - pos["h"]) * f.open
+                    turnover = abs(newh - pos["h"]) * f[execution]
                     cost = cost_mult * 0.0001 * turnover
                     pos["cash"] -= cost
-                    pos.update(h=newh, F=f.open, mark=mark, last=day)
+                    pos.update(h=newh, F=f[execution], mark=mark, last=day)
                     daily_pnl = pos["cash"] + pos["q"] * mark - before
             else:
                 daily_pnl = 0.0
                 if i + holding < len(dates) and prev in m.panel.index:
                     sig = m.panel.loc[prev]
-                    if np.isfinite(sig.signal) and abs(sig.signal) > threshold:
+                    if np.isfinite(sig.signal) and abs(sig.signal) > active_threshold:
                         try:
                             c, p, f = m.quote(day, sig.expiry, sig.strike)
                         except KeyError:
@@ -273,14 +272,10 @@ def run(
                             c = None
                         if (
                             c is not None
-                            and min(c.open, p.open, f.open) > 0
+                            and positive_quotes(c[execution], p[execution], f[execution])
                             and (sig.expiry - day).days > 7
                         ):
-                            q = (
-                                force_direction
-                                if force_direction is not None
-                                else (1 if sig.signal > 0 else -1)
-                            )
+                            q = force_direction if force_direction is not None else (1 if sig.signal > 0 else -1)
                             tau = (sig.expiry - prev).days / 365
                             vols = (
                                 [sig.iv_call, sig.iv_put]
@@ -293,8 +288,12 @@ def run(
                                     black(sig.forward, sig.strike, tau, r, vols[1], True)[1]
                                 )
                             )
-                            mark = c.open + p.open
-                            turnover = abs(h) * f.open
+                            if rule == "unhedged":
+                                h = 0.0
+                            if not np.isfinite(h):
+                                raise ValueError("Invalid entry hedge")
+                            mark = c[execution] + p[execution]
+                            turnover = abs(h) * f[execution]
                             cost = cost_mult * (0.002 * mark + 0.0001 * turnover)
                             count += 1
                             pos = dict(
@@ -305,7 +304,7 @@ def run(
                                 strike=sig.strike,
                                 cash=-q * mark - cost,
                                 mark=mark,
-                                F=f.open,
+                                F=f[execution],
                                 last=day,
                                 entry_i=i,
                                 entry_date=day,
@@ -333,8 +332,7 @@ def run(
                     position=0 if pos is None else pos["q"],
                 )
             )
-        if pos is not None:
-            raise AssertionError("Unclosed position")
+
     else:
         # Multi-position inventory loop
         positions = []
@@ -483,9 +481,10 @@ def run(
             )
         if len(positions) > 0:
             raise AssertionError("Unclosed multi-positions")
-
     d = pd.DataFrame(daily)
-    t = pd.DataFrame(trades)
+    t = pd.DataFrame(trades, columns=["trade_id", "entry_date", "exit_date", "expiry", "strike", "direction", "entry_signal", "pnl", "holding_sessions"])
+    if max_positions <= 1 and pos is not None:
+        raise AssertionError("Unclosed position")
     if not np.allclose(
         d.net_pnl, d.option_pnl + d.futures_pnl + d.financing - d.cost, atol=1e-7
     ):
@@ -499,6 +498,7 @@ def run(
     std = d.net_pnl.std(ddof=1)
     metric = dict(
         rule=rule,
+        execution=execution,
         threshold=threshold,
         cost_multiplier=cost_mult,
         rebalance_sessions=rebalance,
@@ -516,7 +516,7 @@ def run(
         long_trades=int((t.direction == 1).sum()) if len(t) else 0,
         short_trades=int((t.direction == -1).sum()) if len(t) else 0,
     )
-    return d, t, metric, pd.DataFrame(events)
+    return d, t, metric, pd.DataFrame(events, columns=["date", "event"])
 
 
 def run_benchmark(m, start, end, holding=5, cost_mult=1.0, r=0.065, capital=100000.0):
@@ -561,24 +561,6 @@ def experiment(root):
         e.to_csv(out / f"events_{rule}.csv", index=False)
         curve[rule] = d
     pd.DataFrame(rows).to_csv(out / "test_metrics.csv", index=False)
-
-    # Naive short straddle benchmark run (Variance Risk Premium baseline)
-    d_bench, t_bench, met_bench, _ = run_benchmark(m, "2025-07-01", "2025-12-31")
-    d_bench.to_csv(out / "backtest_daily_benchmark.csv", index=False)
-    t_bench.to_csv(out / "trades_benchmark.csv", index=False)
-    pd.DataFrame([met_bench]).to_csv(out / "benchmark_metrics.csv", index=False)
-
-    # Inventory Capacity Sensitivity (Concurrent positions 1, 2, 3)
-    capacity_rows = []
-    for cap in [1, 2, 3]:
-        for rule in ["implied", "forecast"]:
-            _, _, cmet, _ = run(
-                m, "2025-07-01", "2025-12-31", threshold=k, rule=rule, max_positions=cap
-            )
-            cmet["max_positions"] = cap
-            capacity_rows.append(cmet)
-    pd.DataFrame(capacity_rows).to_csv(out / "capacity_sensitivity.csv", index=False)
-
     sensitivity = []
     for cm in [0, 1, 2, 5]:
         for rule in ["implied", "forecast"]:
@@ -593,7 +575,6 @@ def experiment(root):
             )
             sensitivity.append(met)
     pd.DataFrame(sensitivity).to_csv(out / "sensitivity.csv", index=False)
-
     # Threshold alternatives are diagnostics only, never used to reselect after test.
     checks = []
     for kk in [0.0, 0.01, 0.02, 0.03]:
@@ -601,7 +582,6 @@ def experiment(root):
             _, _, met, _ = run(m, "2025-07-01", "2025-12-31", threshold=kk, rule=rule)
             checks.append(met)
     pd.DataFrame(checks).to_csv(out / "test_threshold_sensitivity.csv", index=False)
-
     paired = pd.DataFrame(
         {
             "implied": pd.read_csv(out / "trades_implied.csv").pnl,
@@ -629,54 +609,30 @@ def experiment(root):
         futures_cost_notional_fraction=0.0001,
         fixed_reporting_capital=100000,
         paired_trade_mean_difference=float(diff.mean()),
-        paired_trade_bootstrap_95=list(np.quantile(boot, [0.025, 0.975])),
-        bootstrap_caveat="IID trade bootstrap is descriptive; serial dependence can invalidate nominal coverage.",
+        paired_trade_bootstrap_95=(list(np.quantile(boot, [0.025, 0.975])) if len(diff) >= 20 else None),
+        bootstrap_caveat="Suppressed below 20 trades; above that, IID bootstrap remains descriptive and ignores serial dependence.",
         execution="Prior-close signal and delta, next-session opening-price execution",
         sizing="One signed straddle unit with fractional futures; no exchange lot or margin enforcement",
-        scope="Core replication plus historical adaptation with GARCH(1,1), Naive VRP Benchmark, and capacity sensitivity.",
-        garch_params=m.garch_params,
-        benchmark_net_pnl=float(met_bench["net_pnl"]),
-        benchmark_trades=int(met_bench["trades"]),
-        benchmark_sharpe=float(met_bench["sharpe_excess"]),
+        scope="Core replication plus historical adaptation. No GARCH, Heston or exact statutory cost schedule.",
     )
     (out / "experiment.json").write_text(json.dumps(config, indent=2))
-
-    # Plot 1: Cumulative P&L with Naive VRP benchmark
-    fig, ax = plt.subplots(figsize=(8.5, 3.6))
+    fig, ax = plt.subplots(figsize=(8, 3.4))
     for rule, color in [("implied", "#137c83"), ("forecast", "#e39332")]:
         d = curve[rule]
-        ax.plot(d.date, d.cumulative_pnl, label=rule + " vol delta", color=color, lw=1.8)
-    ax.plot(
-        d_bench.date,
-        d_bench.cumulative_pnl,
-        label="Naive short straddle (VRP baseline)",
-        color="#88929b",
-        linestyle="--",
-        lw=1.3,
-    )
+        ax.plot(d.date, d.cumulative_pnl, label=rule + " vol delta", color=color)
     ax.axhline(0, color="#667", lw=0.6)
     ax.set(ylabel="Cumulative net P&L (index points)", xlabel="Test period, 2025")
-    ax.legend(fontsize=8.5)
+    ax.legend()
     fig.tight_layout()
     fig.savefig(out / "figures/historical_pnl.png", dpi=190)
     plt.close(fig)
-
-    # Plot 2: Volatility Comparison (ATM Implied, EWMA, GARCH(1,1))
-    fig, ax = plt.subplots(figsize=(8.5, 3.4))
+    fig, ax = plt.subplots(figsize=(8, 3.3))
     p = m.panel.dropna()
-    ax.plot(p.index, p.implied_vol * 100, label="ATM implied", color="#137c83", lw=1.2)
-    ax.plot(p.index, p.forecast_vol * 100, label="EWMA (0.94)", color="#e39332", lw=1.2)
-    ax.plot(
-        p.index,
-        p.garch_forecast * 100,
-        label="GARCH(1,1)",
-        color="#8c564b",
-        linestyle=":",
-        lw=1.2,
-    )
-    ax.axvline(pd.Timestamp("2025-07-01"), ls="--", color="#667", label="Test split")
+    ax.plot(p.index, p.implied_vol * 100, label="ATM implied", color="#137c83", lw=1)
+    ax.plot(p.index, p.forecast_vol * 100, label="EWMA forecast", color="#e39332", lw=1)
+    ax.axvline(pd.Timestamp("2025-07-01"), ls="--", color="#667")
     ax.set(ylabel="Annualized volatility (%)")
-    ax.legend(fontsize=8.5)
+    ax.legend()
     fig.tight_layout()
     fig.savefig(out / "figures/volatility.png", dpi=190)
     plt.close(fig)
